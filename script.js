@@ -1708,10 +1708,7 @@ function finishExercise() {
     document.getElementById('reviewBtn').style.display = hasMistakes ? 'inline-block' : 'none';
     // Đồng bộ nút trong modal kết quả
     const reviewBtnModal = document.getElementById('reviewBtnModal');
-    const historyBtnModal = document.getElementById('historyBtnModal');
     if (reviewBtnModal) reviewBtnModal.style.display = hasMistakes ? 'inline-block' : 'none';
-    if (historyBtnModal) historyBtnModal.textContent = hasMistakes ? '📝 Xem lại câu sai' : '📜 Lịch sử bài làm';
-    if (historyBtnModal && hasMistakes) historyBtnModal.onclick = reviewMistakes;
 
     // Lưu lịch sử bài tập vào localStorage
     try {
