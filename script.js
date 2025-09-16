@@ -1704,8 +1704,14 @@ function finishExercise() {
     document.getElementById('encouragement').textContent = encouragement;
 
     // Hiển thị/ẩn nút xem lại câu sai
-    document.getElementById('reviewBtn').style.display =
-        incorrectQuestions.length > 0 ? 'inline-block' : 'none';
+    const hasMistakes = incorrectQuestions.length > 0;
+    document.getElementById('reviewBtn').style.display = hasMistakes ? 'inline-block' : 'none';
+    // Đồng bộ nút trong modal kết quả
+    const reviewBtnModal = document.getElementById('reviewBtnModal');
+    const historyBtnModal = document.getElementById('historyBtnModal');
+    if (reviewBtnModal) reviewBtnModal.style.display = hasMistakes ? 'inline-block' : 'none';
+    if (historyBtnModal) historyBtnModal.textContent = hasMistakes ? '📝 Xem lại câu sai' : '📜 Lịch sử bài làm';
+    if (historyBtnModal && hasMistakes) historyBtnModal.onclick = reviewMistakes;
 
     // Lưu lịch sử bài tập vào localStorage
     try {
@@ -2604,8 +2610,10 @@ function speakFlashcard() {
 }
 
 document.addEventListener('keydown', function (e) {
-    const active = document.querySelector('#flashcards.tab-content');
-    if (!active || active.style.display === 'none') return;
+    // Chỉ bắt phím tắt khi tab Flashcards đang ACTIVE, để không chặn Space trong ô nhập bài tập
+    const fc = document.getElementById('flashcards');
+    const isActive = fc && fc.classList.contains('active');
+    if (!isActive) return;
     if (e.code === 'Space') { e.preventDefault(); flipFlashcard(); }
     else if (e.key === 'ArrowRight') { nextFlashcard(); }
     else if (e.key === 'ArrowLeft') { prevFlashcard(); }
