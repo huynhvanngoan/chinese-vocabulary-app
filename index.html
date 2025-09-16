@@ -17,7 +17,10 @@
             <button class="tab active" onclick="showTab('vocabulary')">📖 Từ vựng</button>
             <button class="tab" onclick="showTab('add-word')">➕ Thêm từ mới</button>
             <button class="tab" onclick="showTab('exercise')">✏️ Làm bài tập</button>
+            <button class="tab" onclick="showTab('flashcards')">🃏 Flashcards</button>
+            <button class="tab" onclick="showTab('manager')">🗂️ Quản lý</button>
             <button class="tab" onclick="showTab('download')">📥 Tải xuống</button>
+            <button class="tab" onclick="showTab('progress')">📊 Tiến độ</button>
         </div>
 
         <!-- Tab từ vựng -->
@@ -52,6 +55,10 @@
                     yêu thích</label>
                 <label class="inline-label"><input id="togglePinyin" type="checkbox" checked
                         aria-label="Hiện hoặc ẩn Pinyin"> Hiện Pinyin</label>
+                <select id="cnDisplay" aria-label="Kiểu hiển thị chữ Hán" onchange="setChineseDisplay(this.value)">
+                    <option value="traditional">Hiển thị Phồn thể</option>
+                    <option value="simplified">Hiển thị Giản thể</option>
+                </select>
             </div>
             <div class="stats">
                 <div class="stat-item">
@@ -90,6 +97,112 @@
                     <tbody id="vocabularyBody">
                     </tbody>
                 </table>
+                <div class="pagination-controls">
+                    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; justify-content:center;">
+                        <button class="btn" id="pagePrev" onclick="changePage(-1)" style="padding:8px 14px;">⬅️</button>
+                        <span id="pageInfo" style="min-width:140px; display:inline-block; text-align:center;"></span>
+                        <button class="btn" id="pageNext" onclick="changePage(1)" style="padding:8px 14px;">➡️</button>
+                        <span style="margin-left:10px;">Hiển thị</span>
+                        <select id="pageSize" onchange="setPageSize(this.value)" aria-label="Số hàng mỗi trang">
+                            <option value="25">25</option>
+                            <option value="50" selected>50</option>
+                            <option value="100">100</option>
+                        </select>
+                        <span>hàng</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab quản lý bài/chủ đề -->
+        <div id="manager" class="tab-content">
+            <div class="manager">
+                <h3 class="manager-title">🗂️ Quản lý Bài/Chủ đề</h3>
+                <div class="manager-grid">
+                    <div class="manager-card">
+                        <h5>Bài học</h5>
+                        <table class="manager-table">
+                            <tr>
+                                <th style="width:160px;">Chọn bài</th>
+                                <td><select id="manageLesson" aria-label="Chọn bài"></select></td>
+                            </tr>
+                            <tr>
+                                <th>Tên mới</th>
+                                <td><input type="text" id="newLessonName" placeholder="Tên bài mới / đổi tên"
+                                        aria-label="Tên bài học"></td>
+                            </tr>
+                            <tr>
+                                <th>Hành động</th>
+                                <td>
+                                    <div class="btn-group">
+                                        <button class="btn" onclick="createLesson()">➕ Tạo bài</button>
+                                        <button class="btn" onclick="renameLesson()">✏️ Đổi tên bài</button>
+                                        <button class="btn btn-danger" onclick="deleteLesson()">🗑️ Xóa bài</button>
+                                    </div>
+                                </td>
+                            </tr>
+                        </table>
+                    </div>
+                    <div class="manager-card">
+                        <h5>Chủ đề</h5>
+                        <table class="manager-table">
+                            <tr>
+                                <th>Chủ đề nguồn</th>
+                                <td><input type="text" id="manageTopic" placeholder="Chủ đề nguồn"
+                                        aria-label="Chủ đề nguồn"></td>
+                            </tr>
+                            <tr>
+                                <th>Đích/đổi tên</th>
+                                <td><input type="text" id="targetTopic" placeholder="Tên mới / chủ đề đích"
+                                        aria-label="Chủ đề đích hoặc tên mới"></td>
+                            </tr>
+                            <tr>
+                                <th>Hành động</th>
+                                <td>
+                                    <div class="btn-group">
+                                        <button class="btn" onclick="createTopic()">➕ Tạo chủ đề</button>
+                                        <button class="btn" onclick="renameTopic()">✏️ Đổi tên chủ đề</button>
+                                        <button class="btn" onclick="mergeTopics()">🔀 Gộp chủ đề</button>
+                                        <button class="btn btn-danger" onclick="deleteTopic()">🗑️ Xóa chủ đề</button>
+                                    </div>
+                                </td>
+                            </tr>
+                        </table>
+                    </div>
+                    <div class="manager-card">
+                        <h5>Thống kê</h5>
+                        <div class="stats-split">
+                            <div>
+                                <strong>Theo bài</strong>
+                                <div class="stats-scroll">
+                                    <table class="manager-stats-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Tên</th>
+                                                <th>Số từ</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="statsByLessonBody"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            <div>
+                                <strong>Theo chủ đề</strong>
+                                <div class="stats-scroll">
+                                    <table class="manager-stats-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Tên</th>
+                                                <th>Số từ</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="statsByTopicBody"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -166,34 +279,37 @@
                 <!-- Quản lý dữ liệu cá nhân -->
                 <div class="data-manager">
                     <h4 class="data-title">📁 Quản lý dữ liệu cá nhân</h4>
-                    <div class="data-container">
 
-                        <!-- Export Section -->
-                        <div class="data-section">
-                            <h5 class="data-section-title export">📤 Xuất dữ liệu</h5>
-                            <div class="data-actions">
-                                <button class="btn btn-excel" onclick="exportUserDataExcel()">📊 Export Excel
-                                    (.xlsx)</button>
-                                <button class="btn btn-json" onclick="exportUserData()">💾 Export JSON (.json)</button>
-                            </div>
-                        </div>
+                    <!-- Export Section -->
 
-                        <!-- Import Section -->
-                        <div class="data-section">
-                            <h5 class="data-section-title import">📥 Nhập dữ liệu</h5>
-                            <div class="data-actions">
-                                <button class="btn btn-import-excel" onclick="importUserDataExcel()">📋 Import Excel
-                                    (.xlsx)</button>
-                                <button class="btn btn-import-json" onclick="importUserData()">📂 Import JSON
-                                    (.json)</button>
-                            </div>
+                    <div class="data-section">
+                        <h5 class="data-section-title export">📤 Xuất dữ liệu</h5>
+                        <div class="data-actions">
+                            <button class="btn btn-excel" onclick="exportUserDataExcel()">📊 Export Excel
+                                (.xlsx)</button>
+                            <button class="btn btn-json" onclick="exportUserData()" style="display:none;">💾 Export JSON
+                                (.json)</button>
                         </div>
                     </div>
+
+                    <!-- Import Section -->
+                    <div class="data-section">
+                        <h5 class="data-section-title import">📥 Nhập dữ liệu</h5>
+                        <div class="data-actions">
+                            <button class="btn btn-import-excel" onclick="importUserDataExcel()">📋 Import Excel
+                                (.xlsx)</button>
+                            <button class="btn btn-import-json" onclick="importUserData()" style="display:none;">📂
+                                Import JSON
+                                (.json)</button>
+                        </div>
+                    </div>
+
 
                     <!-- Danger Zone -->
                     <div class="danger-zone">
                         <h5>⚠️ Vùng nguy hiểm</h5>
-                        <button class="btn btn-danger" onclick="clearLocalStorage()">🗑️ Xóa tất cả từ đã thêm</button>
+                        <button class="btn btn-danger" onclick="clearLocalStorage()">🗑️ Xóa tất cả từ đã
+                            thêm</button>
                     </div>
 
                     <div class="info-box">
@@ -204,6 +320,7 @@
                             • <strong>Dữ liệu:</strong> Tự động lưu trên trình duyệt, export để backup
                         </p>
                     </div>
+
                 </div>
             </div>
         </div>
@@ -214,31 +331,67 @@
                 <h3>✏️ Làm bài tập với kiểm tra tức thì</h3>
 
                 <div class="exercise-controls">
-                    <select id="exerciseType">
-                        <option value="fillBlank">Điền chữ Hán</option>
-                        <option value="fillVietnamese">Điền nghĩa tiếng Việt</option>
-                        <option value="fillPinyin">Điền Pinyin</option>
-                        <option value="multipleChoice">Trắc nghiệm chữ Hán</option>
-                        <option value="multipleChoiceVietnamese">Trắc nghiệm nghĩa</option>
-                        <option value="trueFalse">Đúng/Sai</option>
-                        <option value="matching">Nối từ</option>
-                        <option value="listening">Nghe Pinyin</option>
-                        <option value="buildSentence">Ghép câu</option>
-                    </select>
+                    <div class="exercise-filters" style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
+                        <select id="exerciseType">
+                            <option value="fillBlank">Điền chữ Hán</option>
+                            <option value="fillVietnamese">Điền nghĩa tiếng Việt</option>
+                            <option value="fillPinyin">Điền Pinyin</option>
+                            <option value="multipleChoice">Trắc nghiệm chữ Hán</option>
+                            <option value="multipleChoiceVietnamese">Trắc nghiệm nghĩa</option>
+                            <option value="trueFalse">Đúng/Sai</option>
+                            <option value="matching">Nối từ</option>
+                            <option value="listening">Nghe Pinyin</option>
+                            <option value="buildSentence">Ghép câu</option>
+                            <option value="sentenceFill">Điền từ trong câu</option>
+                        </select>
 
-                    <select id="lessonFilter">
-                        <option value="all">Tất cả bài</option>
-                        <option value="Bài 1">Bài 1</option>
-                        <option value="Bài 2">Bài 2</option>
-                        <option value="Từ mới">Từ mới</option>
-                    </select>
+                        <select id="lessonFilter">
+                            <option value="all">Tất cả bài</option>
+                            <option value="Bài 1">Bài 1</option>
+                            <option value="Bài 2">Bài 2</option>
+                            <option value="Từ mới">Từ mới</option>
+                        </select>
 
-                    <input type="number" id="questionCount" min="5" max="50" value="10"
-                        style="width: 80px; padding: 10px; border-radius: 20px; border: 2px solid #ddd;">
-                    <label for="questionCount">câu</label>
+                        <input type="number" id="questionCount" min="5" max="50" value="10"
+                            style="width: 80px; padding: 10px; border-radius: 20px; border: 2px solid #ddd;">
+                        <label for="questionCount">câu</label>
+                        <label class="inline-label" style="margin-left:10px;"><input id="dueOnly" type="checkbox"
+                                aria-label="Ôn từ đến hạn"> Ôn từ đến hạn</label>
+                        <label class="inline-label"><input id="recentMistakes" type="checkbox"
+                                aria-label="Ôn lại câu sai gần đây"> Ôn lại câu sai gần đây</label>
+                        <label class="inline-label"><input id="preferFavorites" type="checkbox"
+                                aria-label="Ưu tiên yêu thích"> Ưu tiên yêu thích</label>
+                        <label class="inline-label"><input id="preferLowSRS" type="checkbox"
+                                aria-label="Ưu tiên ít thành thạo"> Ưu tiên ít thành thạo</label>
+                    </div>
 
                     <button class="btn" onclick="startExercise()">🎯 Bắt đầu làm bài</button>
-                    <button class="btn" onclick="resetExercise()">🔄 Làm lại</button>
+                    <button class="btn" onclick="stopExercise()" aria-label="Dừng bài hiện tại">⏹️ Dừng bài</button>
+                </div>
+
+                <div class="exercise-controls" style="margin-top: 8px;">
+                    <label class="inline-label"><input id="mixMode" type="checkbox" aria-label="Đề hỗn hợp theo tỉ lệ">
+                        Đề hỗn hợp theo tỉ lệ</label>
+                    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                        <span style="font-size:12px; color:#555;">Tỉ lệ (%):</span>
+                        <label style="font-size:12px;">H→V <input type="number" id="wFillVietnamese" value="0" min="0"
+                                max="100" style="width:60px;"></label>
+                        <label style="font-size:12px;">V→H <input type="number" id="wFillBlank" value="0" min="0"
+                                max="100" style="width:60px;"></label>
+                        <label style="font-size:12px;">Pinyin <input type="number" id="wFillPinyin" value="0" min="0"
+                                max="100" style="width:60px;"></label>
+                        <label style="font-size:12px;">Trắc nghiệm <input type="number" id="wMC" value="0" min="0"
+                                max="100" style="width:80px;"></label>
+                        <span style="font-size:12px; color:#777;">(Tổng có thể khác 100, hệ thống sẽ chuẩn hóa)</span>
+                        <div style="display:flex; gap:6px;">
+                            <button class="btn" style="padding:6px 10px; font-size:12px;"
+                                onclick="setPresetWeights(50,30,20,0)">50/30/20/0</button>
+                            <button class="btn" style="padding:6px 10px; font-size:12px;"
+                                onclick="setPresetWeights(25,25,25,25)">25/25/25/25</button>
+                            <button class="btn" style="padding:6px 10px; font-size:12px;"
+                                onclick="setPresetWeights(0,0,0,100)">0/0/0/100</button>
+                        </div>
+                    </div>
                 </div>
 
                 <div id="exerciseContainer" style="display: none;">
@@ -252,15 +405,19 @@
                         <span style="color: #f44336;">❌ Sai: <span id="incorrectCount">0</span></span>
                         <span style="margin: 0 20px;">|</span>
                         <span>Câu <span id="currentQuestion">1</span>/<span id="totalQuestions">0</span></span>
+                        <span style="margin: 0 20px;">|</span>
+                        <span>⏱️ <span id="timerDisplay">00:00</span></span>
                     </div>
 
-                    <div id="questionCard" class="question-card"></div>
-
-                    <div style="text-align: center; margin-top: 20px;">
-                        <button class="btn" onclick="previousQuestion()" id="prevBtn">⬅️ Câu trước</button>
-                        <button class="btn" onclick="nextQuestion()" id="nextBtn">Câu sau ➡️</button>
-                        <button class="btn" onclick="finishExercise()" id="finishBtn" style="display: none;">🏁 Kết
-                            thúc</button>
+                    <div class="exercise-layout">
+                        <div class="exercise-main">
+                            <div id="questionCard" class="question-card"></div>
+                            <div class="exercise-nav-row">
+                                <!-- <button class="btn" onclick="previousQuestion()" id="prevBtn" aria-label="Câu trước">⬅️ Câu trước</button> -->
+                                <button class="btn" onclick="finishExercise()" id="finishBtn" style="display: none;">🏁 Kết thúc</button>
+                                <!-- <button class="btn" onclick="nextQuestion()" id="nextBtn" aria-label="Câu sau">Câu sau ➡️</button> -->
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -269,6 +426,7 @@
                     <h4>🎉 Hoàn thành bài tập!</h4>
                     <div id="finalScore" style="font-size: 24px; font-weight: bold; margin: 15px 0;"></div>
                     <div id="encouragement" style="font-size: 18px; margin: 15px 0;"></div>
+                    <div id="durationInfo" style="font-size: 14px; color:#666; margin: 8px 0;"></div>
                     <button class="btn" onclick="reviewMistakes()" id="reviewBtn">📝 Xem lại câu sai</button>
                     <button class="btn" onclick="showHistory()" id="historyBtn">📜 Lịch sử bài làm</button>
                 </div>
@@ -284,6 +442,108 @@
                     </div>
                 </div>
                 <div id="historyList" class="history-list"></div>
+            </div>
+        </div>
+
+        <!-- Result Modal -->
+        <div id="resultModal" class="modal">
+            <div class="modal-content" style="max-width:700px;">
+                <span class="close" onclick="closeResultModal()">&times;</span>
+                <h3>🎉 Hoàn thành bài tập!</h3>
+                <div id="finalScoreModal" style="font-size:24px; font-weight:bold; margin:12px 0;"></div>
+                <div id="encouragementModal" style="font-size:18px; margin: 8px 0;"></div>
+                <div id="durationInfoModal" style="font-size:14px; color:#666; margin: 8px 0;"></div>
+                <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap;">
+                    <button class="btn" onclick="reviewMistakes()" id="reviewBtnModal">📝 Xem lại câu sai</button>
+                    <button class="btn" onclick="showHistory()" id="historyBtnModal">📜 Lịch sử bài làm</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab Flashcards -->
+        <div id="flashcards" class="tab-content">
+            <div class="flashcards-controls">
+                <select id="fcLesson">
+                    <option value="all">Tất cả bài</option>
+                    <option value="Bài 1">Bài 1</option>
+                    <option value="Bài 2">Bài 2</option>
+                    <option value="Từ mới">Từ mới</option>
+                </select>
+                <label class="inline-label"><input id="fcFavorites" type="checkbox" aria-label="Chỉ hiện từ yêu thích">
+                    Chỉ yêu thích</label>
+                <label class="inline-label"><input id="fcTwoSided" type="checkbox" checked
+                        aria-label="Bật random hai mặt"> Random 2 mặt</label>
+                <label class="inline-label"><input id="fcAutoplay" type="checkbox" aria-label="Tự động phát âm">
+                    Autoplay phát âm</label>
+                <select id="fcVoice" aria-label="Giọng đọc"></select>
+                <label style="font-size:12px;">Tốc độ <input type="range" id="fcRate" min="0.5" max="1.5" step="0.1"
+                        value="1" aria-label="Tốc độ đọc"></label>
+                <select id="fcReadMode" aria-label="Nội dung đọc">
+                    <option value="pinyin">Đọc Pinyin</option>
+                    <option value="hanzi">Đọc chữ Hán</option>
+                    <option value="both">Đọc Hán + Pinyin</option>
+                </select>
+                <button class="btn" onclick="initFlashcards()">🔄 Tạo bộ thẻ</button>
+            </div>
+            <div class="flashcards-container">
+                <div id="flashcard" class="flashcard" tabindex="0" onclick="flipFlashcard()">
+                    <div id="flashFront" class="flash-face front"></div>
+                    <div id="flashBack" class="flash-face back" style="display:none;"></div>
+                </div>
+                <div class="flashcards-nav">
+                    <button class="btn" onclick="prevFlashcard()">⬅️ Trước</button>
+                    <span id="flashInfo" style="min-width:120px; text-align:center;"></span>
+                    <button class="btn" onclick="nextFlashcard()">Sau ➡️</button>
+                    <button class="btn" onclick="speakFlashcard()">🔊 Phát âm</button>
+                </div>
+                <div class="flashcards-hint">Phím tắt: Space (lật), ←/→ (trước/sau), A (phát âm)</div>
+            </div>
+        </div>
+
+        <!-- Tab tiến độ -->
+        <div id="progress" class="tab-content">
+            <div class="exercise-section">
+                <h3>📈 Tiến độ học tập</h3>
+                <div class="progress-grid">
+                    <div class="card">
+                        <h5>Ngày gần đây</h5>
+                        <canvas id="dailyChart" width="400" height="160"></canvas>
+                    </div>
+                    <div class="card">
+                        <h5>Tuần gần đây</h5>
+                        <canvas id="weeklyChart" width="400" height="160"></canvas>
+                    </div>
+                </div>
+                <div class="progress-grid" style="margin-top:10px;">
+                    <div class="card">
+                        <h5>Tỉ lệ đúng theo loại bài</h5>
+                        <table class="mini-table">
+                            <thead>
+                                <tr>
+                                    <th>Loại</th>
+                                    <th>Đúng</th>
+                                    <th>Tổng</th>
+                                    <th>%</th>
+                                </tr>
+                            </thead>
+                            <tbody id="byTypeBody"></tbody>
+                        </table>
+                    </div>
+                    <div class="card">
+                        <h5>Tỉ lệ đúng theo từ loại</h5>
+                        <table class="mini-table">
+                            <thead>
+                                <tr>
+                                    <th>Từ loại</th>
+                                    <th>Đúng</th>
+                                    <th>Tổng</th>
+                                    <th>%</th>
+                                </tr>
+                            </thead>
+                            <tbody id="byGrammarBody"></tbody>
+                        </table>
+                    </div>
+                </div>
             </div>
         </div>
 

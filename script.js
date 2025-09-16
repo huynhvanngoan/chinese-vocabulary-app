@@ -18,6 +18,145 @@ function toTraditional(input) {
     return out;
 }
 
+// ===== Display: Simplified/Traditional toggle =====
+let chineseDisplayMode = localStorage.getItem('cnDisplay') || 'traditional';
+
+function setChineseDisplay(mode) {
+    chineseDisplayMode = (mode === 'simplified') ? 'simplified' : 'traditional';
+    localStorage.setItem('cnDisplay', chineseDisplayMode);
+    displayVocabulary();
+    // Update exercise/flashcards if visible
+    if (document.getElementById('exercise')?.classList.contains('active')) generateQuestion();
+    if (document.getElementById('flashcards')?.classList.contains('active')) renderFlashcard();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const sel = document.getElementById('cnDisplay');
+    if (sel) sel.value = chineseDisplayMode;
+});
+
+function toSimplified(input) {
+    if (!input) return input;
+    // reverse of toTraditional map
+    const rev = {
+        '陳': '陈', '華': '华', '開': '开', '來': '来', '這': '这', '問': '问', '進': '进', '歡': '欢', '謝': '谢', '對': '对',
+        '書': '书', '師': '师', '們': '们', '國': '国', '烏': '乌', '龍': '龙', '張': '张', '馬': '马', '誠': '诚', '東': '东',
+        '灣': '湾', '媽': '妈', '誰': '谁', '見': '见', '氣': '气', '請': '请', '幫': '帮', '幾': '几', '個': '个', '還': '还',
+        '溫': '温', '後': '后', '發': '发', '電': '电', '門': '门', '愛': '爱', '廣': '广', '長': '长', '實': '实', '體': '体'
+    };
+    let out = '';
+    for (let i = 0; i < input.length; i++) out += rev[input[i]] || input[i];
+    return out;
+}
+
+function getDisplayChinese(text) {
+    if (chineseDisplayMode === 'simplified') return toSimplified(text);
+    return text;
+}
+
+// ========= SRS & Pagination & Timing =========
+let exerciseStartMs = 0;
+let pageSize = 50;
+let currentPage = 1;
+
+function ensureSRSDefaults() {
+    const nowIso = new Date().toISOString();
+    vocabularyData.forEach(item => {
+        if (!item.srs) {
+            item.srs = { ease: 2.5, interval: 0, due: nowIso, streak: 0, lastReviewed: null };
+        } else {
+            if (typeof item.srs.ease !== 'number') item.srs.ease = 2.5;
+            if (typeof item.srs.interval !== 'number') item.srs.interval = 0;
+            if (!item.srs.due) item.srs.due = nowIso;
+            if (typeof item.srs.streak !== 'number') item.srs.streak = 0;
+            if (!('lastReviewed' in item.srs)) item.srs.lastReviewed = null;
+        }
+    });
+}
+
+function getDueItemsReference() {
+    const now = new Date();
+    return new Set(
+        vocabularyData
+            .filter(it => new Date(it.srs?.due || now) <= now)
+            .map(it => it.chinese)
+    );
+}
+
+function updateSRSForWord(wordChinese, isCorrect) {
+    const idx = vocabularyData.findIndex(w => w.chinese === wordChinese);
+    if (idx === -1) return;
+    const now = new Date();
+    const srs = vocabularyData[idx].srs || { ease: 2.5, interval: 0, due: now.toISOString(), streak: 0, lastReviewed: null };
+    if (isCorrect) {
+        srs.streak = (srs.streak || 0) + 1;
+        // SM-2 simplified
+        if (srs.streak === 1) srs.interval = 1;
+        else if (srs.streak === 2) srs.interval = 3;
+        else srs.interval = Math.round((srs.interval || 1) * (srs.ease || 2.5));
+        srs.ease = Math.max(1.3, (srs.ease || 2.5));
+    } else {
+        srs.streak = 0;
+        srs.interval = 1;
+        srs.ease = Math.max(1.3, (srs.ease || 2.5) - 0.2);
+    }
+    const dueDate = new Date(now.getTime() + srs.interval * 24 * 60 * 60 * 1000);
+    srs.due = dueDate.toISOString();
+    srs.lastReviewed = now.toISOString();
+    vocabularyData[idx].srs = srs;
+}
+
+function saveSRSMap() {
+    const map = {};
+    vocabularyData.forEach(it => { if (it.srs) map[it.chinese] = it.srs; });
+    localStorage.setItem('chineseVocab_srs', JSON.stringify(map));
+}
+
+function loadSRSMap() {
+    const raw = localStorage.getItem('chineseVocab_srs');
+    if (!raw) return;
+    try {
+        const map = JSON.parse(raw);
+        vocabularyData.forEach(it => {
+            if (map[it.chinese]) it.srs = { ...it.srs, ...map[it.chinese] };
+        });
+    } catch (e) { console.log('Load SRS failed', e); }
+}
+
+function getRecentMistakeSet(limitDays = 7) {
+    try {
+        const hist = JSON.parse(localStorage.getItem('chineseVocab_history') || '[]');
+        const cutoff = Date.now() - limitDays * 24 * 60 * 60 * 1000;
+        const set = new Set();
+        hist.forEach(h => {
+            if (!h.timestamp || new Date(h.timestamp).getTime() < cutoff) return;
+            (h.mistakes || []).forEach(m => set.add(m.question?.chinese));
+        });
+        return set;
+    } catch { return new Set(); }
+}
+
+function getPagedData(data) {
+    const total = data.length;
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    if (currentPage > totalPages) currentPage = totalPages;
+    const start = (currentPage - 1) * pageSize;
+    const end = Math.min(total, start + pageSize);
+    return { slice: data.slice(start, end), total, totalPages, start };
+}
+
+function changePage(delta) {
+    currentPage = Math.max(1, currentPage + delta);
+    displayVocabulary();
+}
+function setPageSize(val) {
+    pageSize = parseInt(val) || 50;
+    currentPage = 1;
+    displayVocabulary();
+}
+
+// ========= Existing code continues =========
+
 function initializeVocabularyData() {
     vocabularyData = [
         // Bài 1 - Chào mừng bạn đến Đài Loan - Từ mới 1
@@ -102,6 +241,27 @@ function initializeVocabularyData() {
         { lesson: "Bài 2", topic: "Động từ", chinese: "照相", pinyin: "zhàoxiāng", grammar: "V-sep", vietnamese: "Chụp ảnh", example: "我们一起照相。", isUserAdded: false },
         { lesson: "Bài 2", topic: "Lượng từ", chinese: "张", pinyin: "zhāng", grammar: "M", vietnamese: "Tờ, bức, tấm", example: "一张照片。", isUserAdded: false },
         { lesson: "Bài 2", topic: "Tính từ", chinese: "好看", pinyin: "hǎokàn", grammar: "Vs", vietnamese: "Đẹp", example: "这照片很好看。", isUserAdded: false },
+        { lesson: "Bài 2", topic: "Đại từ", chinese: "谁", pinyin: "shuí", grammar: "N", vietnamese: "Ai", example: "这是谁？", isUserAdded: false },
+        { lesson: "Bài 2", topic: "Gia đình", chinese: "姐姐", pinyin: "jiějie", grammar: "N", vietnamese: "Chị gái", example: "我姐姐很聪明。", isUserAdded: false },
+        { lesson: "Bài 2", topic: "Gia đình", chinese: "妹妹", pinyin: "mèimei", grammar: "N", vietnamese: "Em gái", example: "我妹妹还小。", isUserAdded: false },
+        { lesson: "Bài 2", topic: "Gia đình", chinese: "爸爸", pinyin: "bàba", grammar: "N", vietnamese: "Bố", example: "我爸爸是医生。", isUserAdded: false },
+        { lesson: "Bài 2", topic: "Gia đình", chinese: "妈妈", pinyin: "māma", grammar: "N", vietnamese: "Mẹ", example: "我妈妈很温柔。", isUserAdded: false },
+        { lesson: "Bài 2", topic: "Lời mời", chinese: "请进", pinyin: "qǐng jìn", grammar: "", vietnamese: "Mời vào!", example: "请进！欢迎来我家。", isUserAdded: false },
+        { lesson: "Bài 2", topic: "Nghề nghiệp", chinese: "老师", pinyin: "lǎoshī", grammar: "N", vietnamese: "Giáo viên", example: "他是我的老师。", isUserAdded: false },
+        { lesson: "Bài 2", topic: "Động từ", chinese: "看书", pinyin: "kànshū", grammar: "V-sep", vietnamese: "Đọc sách", example: "我喜欢看书。", isUserAdded: false },
+        { lesson: "Bài 2", topic: "Danh từ", chinese: "几", pinyin: "jǐ", grammar: "N", vietnamese: "Mấy", example: "你有几个孩子？", isUserAdded: false },
+        { lesson: "Bài 2", topic: "Lượng từ", chinese: "个", pinyin: "ge", grammar: "M", vietnamese: "Cái", example: "三个人。", isUserAdded: false },
+        { lesson: "Bài 2", topic: "Phủ định", chinese: "没", pinyin: "méi", grammar: "Adv", vietnamese: "Không", example: "我没有书。", isUserAdded: false },
+        { lesson: "Bài 2", topic: "Gia đình", chinese: "兄弟", pinyin: "xiōngdì", grammar: "N", vietnamese: "Anh em", example: "我有两个兄弟。", isUserAdded: false },
+        { lesson: "Bài 2", topic: "Chỉ định", chinese: "的", pinyin: "de", grammar: "Ptc", vietnamese: "Chỉ sở hữu", example: "这是我的书。", isUserAdded: false },
+        { lesson: "Bài 2", topic: "Gia đình", chinese: "家人", pinyin: "jiārén", grammar: "N", vietnamese: "Người nhà", example: "我的家人都很好。", isUserAdded: false },
+        { lesson: "Bài 2", topic: "Danh từ", chinese: "家", pinyin: "jiā", grammar: "N", vietnamese: "Nhà", example: "我的家在台北。", isUserAdded: false },
+        { lesson: "Bài 2", topic: "Tính từ", chinese: "漂亮", pinyin: "piàoliang", grammar: "Vs", vietnamese: "Xinh đẹp", example: "她很漂亮。", isUserAdded: false },
+        { lesson: "Bài 2", topic: "Động từ", chinese: "坐", pinyin: "zuò", grammar: "Vi", vietnamese: "Ngồi", example: "请坐！", isUserAdded: false },
+        { lesson: "Bài 2", topic: "Động từ", chinese: "有", pinyin: "yǒu", grammar: "Vst", vietnamese: "Có", example: "我有一本书。", isUserAdded: false },
+        { lesson: "Bài 2", topic: "Số lượng", chinese: "多", pinyin: "duō", grammar: "Vs-pred", vietnamese: "Nhiều", example: "人很多。", isUserAdded: false },
+        { lesson: "Bài 2", topic: "Danh từ", chinese: "照片", pinyin: "zhàopiàn", grammar: "N", vietnamese: "Bức ảnh", example: "这是我的照片。", isUserAdded: false },
+        { lesson: "Bài 2", topic: "Trạng từ", chinese: "都", pinyin: "dōu", grammar: "Adv", vietnamese: "Đều", example: "我们都是学生。", isUserAdded: false },
         { lesson: "Bài 2", topic: "Đại từ", chinese: "谁", pinyin: "shuí", grammar: "N", vietnamese: "Ai", example: "这是谁？", isUserAdded: false },
         { lesson: "Bài 2", topic: "Gia đình", chinese: "姐姐", pinyin: "jiějie", grammar: "N", vietnamese: "Chị gái", example: "我姐姐很聪明。", isUserAdded: false },
         { lesson: "Bài 2", topic: "Gia đình", chinese: "妹妹", pinyin: "mèimei", grammar: "N", vietnamese: "Em gái", example: "我妹妹还小。", isUserAdded: false },
@@ -258,16 +418,16 @@ function importUserData() {
                         importedWords.forEach(word => {
                             if (word.chinese && word.pinyin && word.vietnamese) {
                                 if (!vocabularyData.some(item => item.chinese === word.chinese)) {
-                                    word.isUserAdded = true;
                                     vocabularyData.push(word);
                                     addedCount++;
                                 }
                             }
                         });
+                        dedupeVocabulary();
                         saveToLocalStorage();
                         displayVocabulary();
                         updateStats();
-                        alert(`Đã import thành công ${addedCount} từ vựng!`);
+                        alert(`✅ Đã nhập ${addedCount} từ mới!`);
                     } else {
                         alert('File JSON không hợp lệ!');
                     }
@@ -390,11 +550,15 @@ function importUserDataExcel() {
 document.addEventListener('DOMContentLoaded', function () {
     initializeVocabularyData();
     loadFromLocalStorage(); // Load dữ liệu từ LocalStorage
+    dedupeVocabulary();
+    ensureSRSDefaults();
+    loadSRSMap();
     displayVocabulary();
     updateStats();
     updateLessonOptions(); // Cập nhật dropdown bài học
     setupFilters();
     renderHistory();
+    renderProgress();
 
     // Event listener cho select bài học
     const lessonSelect = document.getElementById('newLesson');
@@ -437,27 +601,24 @@ function displayVocabulary() {
 
     const data = getFilteredSortedData();
 
-    data.forEach((item, index) => {
+    if (data.length >= VIRT_THRESHOLD) {
+        virtualCache.enabled = false; // force re-measure
+        renderVirtualTable(data);
+        return;
+    } else {
+        // Show pagination controls when not virtualized
+        const pag = document.querySelector('.pagination-controls');
+        if (pag) pag.style.display = '';
+    }
+
+    const paged = getPagedData(data);
+
+    paged.slice.forEach((item, index) => {
         const row = tbody.insertRow();
-        row.innerHTML = `
-                <td>${index + 1}</td>
-                <td>${item.lesson}</td>
-                <td>${item.topic}</td>
-                <td class="chinese">${item.chinese}</td>
-            <td class="pinyin">${renderPinyin(item.pinyin)}</td>
-                <td><span class="grammar">${item.grammar}</span></td>
-                <td class="vietnamese">${item.vietnamese}</td>
-                <td>${item.example || ''}</td>
-                <td>
-                <button class="star-btn ${item.isFavorite ? 'fav' : ''}" title="Yêu thích" onclick="toggleFavorite('${item.chinese.replace(/'/g, "\\'")}')">${item.isFavorite ? '★' : '☆'}</button>
-                <button class="btn" onclick="editWord(${getOriginalIndex(item)})" style="padding: 5px 10px; font-size: 12px; margin-right: 5px; background: linear-gradient(45deg, #ff9800, #f57c00);">✏️ Sửa</button>
-                    ${item.isUserAdded ?
-                `<button class="btn btn-danger" onclick="deleteWord(${getOriginalIndex(item)})" style="padding: 5px 10px; font-size: 12px;">🗑️ Xóa</button>` :
-                '<span style="color: #999; font-size: 12px;">Từ gốc</span>'
-            }
-                </td>
-            `;
+        row.innerHTML = buildRowHTML(item, paged.start + index);
     });
+    const pageInfo = document.getElementById('pageInfo');
+    if (pageInfo) pageInfo.textContent = `Trang ${currentPage}/${Math.max(1, Math.ceil(data.length / pageSize))} • ${data.length} từ`;
 }
 
 // Cập nhật thống kê
@@ -749,6 +910,8 @@ function startExercise() {
     const exerciseType = document.getElementById('exerciseType').value;
     const lessonFilter = document.getElementById('lessonFilter').value;
     const questionCount = parseInt(document.getElementById('questionCount').value);
+    const dueOnly = document.getElementById('dueOnly')?.checked;
+    const reviewMistakes = document.getElementById('recentMistakes')?.checked;
 
     // Lọc dữ liệu theo bài học
     let filteredData = vocabularyData;
@@ -756,14 +919,78 @@ function startExercise() {
         filteredData = vocabularyData.filter(item => item.lesson === lessonFilter);
     }
 
-    if (filteredData.length === 0) {
-        alert('❌ Không tìm thấy từ vựng nào cho bài học đã chọn!');
-        return;
+    // Lọc SRS đến hạn
+    if (dueOnly) {
+        const dueSet = getDueItemsReference();
+        filteredData = filteredData.filter(i => dueSet.has(i.chinese));
     }
 
-    // Trộn ngẫu nhiên và lấy số câu theo yêu cầu
-    const shuffled = filteredData.sort(() => 0.5 - Math.random());
-    currentExerciseData = shuffled.slice(0, Math.min(questionCount, shuffled.length));
+    // Lọc theo câu sai gần đây
+    if (reviewMistakes) {
+        const mistakeSet = getRecentMistakeSet(14);
+        filteredData = filteredData.filter(i => mistakeSet.has(i.chinese));
+    }
+
+    // Ưu tiên dữ liệu nếu bật
+    const preferFavorites = document.getElementById('preferFavorites')?.checked;
+    const preferLowSRS = document.getElementById('preferLowSRS')?.checked;
+    if (preferFavorites || preferLowSRS) {
+        const scored = filteredData.map(it => {
+            let score = 0;
+            if (preferFavorites && it.isFavorite) score += 2;
+            if (preferLowSRS) {
+                const iv = it.srs?.interval || 0;
+                score += Math.max(0, 3 - Math.min(3, iv));
+            }
+            return { it, score };
+        });
+        scored.sort((a, b) => b.score - a.score || Math.random() - 0.5);
+        filteredData = scored.map(s => s.it);
+    }
+
+    // Đề hỗn hợp theo tỉ lệ
+    const mixMode = document.getElementById('mixMode')?.checked;
+    if (mixMode && filteredData.length > 0) {
+        const weights = {
+            fillVietnamese: parseInt(document.getElementById('wFillVietnamese')?.value || '0') || 0,
+            fillBlank: parseInt(document.getElementById('wFillBlank')?.value || '0') || 0,
+            fillPinyin: parseInt(document.getElementById('wFillPinyin')?.value || '0') || 0,
+            multipleChoice: parseInt(document.getElementById('wMC')?.value || '0') || 0
+        };
+        const totalW = Math.max(1, weights.fillVietnamese + weights.fillBlank + weights.fillPinyin + weights.multipleChoice);
+        const counts = {
+            fillVietnamese: Math.round(questionCount * (weights.fillVietnamese / totalW)),
+            fillBlank: Math.round(questionCount * (weights.fillBlank / totalW)),
+            fillPinyin: Math.round(questionCount * (weights.fillPinyin / totalW)),
+            multipleChoice: Math.round(questionCount * (weights.multipleChoice / totalW))
+        };
+        let allocated = counts.fillVietnamese + counts.fillBlank + counts.fillPinyin + counts.multipleChoice;
+        while (allocated < questionCount) { counts.multipleChoice++; allocated++; }
+        while (allocated > questionCount) { if (counts.multipleChoice > 0) { counts.multipleChoice--; allocated--; } else break; }
+
+        const pool = [...filteredData];
+        const sample = (n) => {
+            const a = [];
+            for (let i = 0; i < n && pool.length; i++) {
+                a.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+            }
+            return a;
+        };
+        const parts = [];
+        parts.push(...sample(counts.fillVietnamese).map(x => ({ ...x, _mode: 'fillVietnamese' })));
+        parts.push(...sample(counts.fillBlank).map(x => ({ ...x, _mode: 'fillBlank' })));
+        parts.push(...sample(counts.fillPinyin).map(x => ({ ...x, _mode: 'fillPinyin' })));
+        parts.push(...sample(counts.multipleChoice).map(x => ({ ...x, _mode: 'multipleChoice' })));
+        currentExerciseData = parts;
+    } else {
+        if (filteredData.length === 0) {
+            alert('❌ Không tìm thấy từ vựng nào cho bài học đã chọn!');
+            return;
+        }
+        // Trộn ngẫu nhiên và lấy số câu theo yêu cầu
+        const shuffled = filteredData.sort(() => 0.5 - Math.random());
+        currentExerciseData = shuffled.slice(0, Math.min(questionCount, shuffled.length));
+    }
 
     // Reset các biến
     currentQuestionIndex = 0;
@@ -781,13 +1008,30 @@ function startExercise() {
     const historySection = document.querySelector('.history-section');
     if (historySection) historySection.style.display = 'none';
 
+    // Ghi thời điểm bắt đầu
+    exerciseStartMs = Date.now();
+
     generateQuestion();
+}
+
+// Preset ratio helper for mix mode
+function setPresetWeights(vHV, vVH, vPY, vMC) {
+    const ids = [
+        ['wFillVietnamese', vHV],
+        ['wFillBlank', vVH],
+        ['wFillPinyin', vPY],
+        ['wMC', vMC]
+    ];
+    ids.forEach(([id, val]) => { const el = document.getElementById(id); if (el) el.value = val; });
+    const mix = document.getElementById('mixMode');
+    if (mix) mix.checked = true;
 }
 
 // Tạo câu hỏi
 function generateQuestion() {
-    const exerciseType = document.getElementById('exerciseType').value;
+    let exerciseType = document.getElementById('exerciseType').value;
     const currentItem = currentExerciseData[currentQuestionIndex];
+    if (currentItem && currentItem._mode) exerciseType = currentItem._mode;
     const questionCard = document.getElementById('questionCard');
 
     updateProgress();
@@ -803,14 +1047,6 @@ function generateQuestion() {
                         <p style="font-size: 18px; margin: 15px 0;">
                             <strong>Nghĩa:</strong> ${currentItem.vietnamese}
                         </p>
-                        <div style="margin: 15px 0;">
-                            <button class="btn" onclick="toggleHint('pinyinHint')" style="padding: 8px 16px; font-size: 14px; margin-bottom: 10px;">
-                                💡 Hiện gợi ý Pinyin
-                            </button>
-                            <div id="pinyinHint" style="display: none; font-size: 16px; color: #e74c3c; margin: 10px 0;">
-                                <strong>Pinyin:</strong> ${currentItem.pinyin}
-                            </div>
-                        </div>
                         <input type="text" id="answerInput" class="answer-input"
                                placeholder="Nhập chữ Hán..." 
                                onkeypress="checkAnswer(event, '${currentItem.chinese.replace(/'/g, "\\'")}')">
@@ -848,7 +1084,7 @@ function generateQuestion() {
                         <p style="font-size: 16px; color: #e74c3c; margin: 15px 0;">
                             <strong>Pinyin:</strong> ${currentItem.pinyin}
                         </p>
-                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; max-width: 400px; margin: 20px auto;">
+                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); grid-template-rows: repeat(2, auto); gap: 12px; max-width: 520px; margin: 20px auto;">
                             ${options.map((option, i) => `
                                 <button class="option-btn" onclick="selectMultipleChoice('${option.replace(/'/g, "\\'")}', '${currentItem.chinese.replace(/'/g, "\\'")}', this)" 
                                         style="padding: 15px; border: 2px solid #ddd; border-radius: 10px; background: white; cursor: pointer; font-size: 18px; font-weight: bold; transition: all 0.3s ease;">
@@ -881,7 +1117,7 @@ function generateQuestion() {
                     <div style="text-align: center;">
                         <h4 style="margin-bottom: 20px;">Chọn nghĩa đúng:</h4>
                         <p style="font-size: 24px; font-weight: bold; color: #2c3e50; margin: 20px 0;">
-                            ${currentItem.chinese}
+                            ${getDisplayChinese(currentItem.chinese)}
                         </p>
                         <p style="font-size: 16px; color: #e74c3c; margin: 15px 0;">
                             <strong>Pinyin:</strong> ${currentItem.pinyin}
@@ -914,7 +1150,7 @@ function generateQuestion() {
                         <h4 style="margin-bottom: 20px;">Đây có phải là nghĩa đúng không?</h4>
                         <div style="margin: 30px 0; padding: 20px; background: #f8f9fa; border-radius: 10px;">
                             <p style="font-size: 24px; font-weight: bold; color: #2c3e50; margin: 10px 0;">
-                                ${currentItem.chinese}
+                                ${getDisplayChinese(currentItem.chinese)}
                             </p>
                             <p style="font-size: 16px; color: #e74c3c; margin: 10px 0;">
                                 ${currentItem.pinyin}
@@ -968,14 +1204,6 @@ function generateQuestion() {
                         <p style="font-size: 24px; font-weight: bold; color: #2c3e50; margin: 20px 0;">
                             ${currentItem.chinese}
                         </p>
-                        <div style="margin: 15px 0;">
-                            <button class="btn" onclick="toggleHint('pinyinHint')" style="padding: 8px 16px; font-size: 14px; margin-bottom: 10px;">
-                                💡 Hiện gợi ý Pinyin
-                            </button>
-                            <div id="pinyinHint" style="display: none; font-size: 16px; color: #e74c3c; margin: 10px 0;">
-                                <strong>Pinyin:</strong> ${currentItem.pinyin}
-                            </div>
-                        </div>
                         <input type="text" id="answerInput" class="answer-input"
                                placeholder="Nhập nghĩa tiếng Việt..." 
                                onkeypress="checkAnswer(event, '${currentItem.vietnamese.replace(/'/g, "\\'")}')">
@@ -1012,9 +1240,18 @@ function generateQuestion() {
                     </div>
                 `;
             break;
+
+        case 'sentenceFill':
+            questionHTML = renderSentenceFill(currentItem);
+            break;
     }
 
     questionCard.innerHTML = questionHTML;
+
+    // Gắn IME cho ô trả lời nếu có (đặc biệt với Pinyin)
+    const ansEl = document.getElementById('answerInput');
+    if (ansEl) attachPinyinIME(ansEl);
+
     updateNavigationButtons();
 
     // Focus vào input
@@ -1050,6 +1287,7 @@ function selectMultipleChoice(selectedAnswer, correctAnswer, buttonElement) {
         feedback.innerHTML = '✅ Chính xác! Tuyệt vời!';
         feedback.className = 'feedback correct';
         correctAnswers++;
+        updateSRSForWord(correctAnswer, true);
     } else {
         buttonElement.style.background = '#ffeaea';
         buttonElement.style.borderColor = '#f44336';
@@ -1067,6 +1305,7 @@ function selectMultipleChoice(selectedAnswer, correctAnswer, buttonElement) {
         feedback.innerHTML = `❌ Sai rồi! Đáp án đúng là: <strong>${correctAnswer}</strong>`;
         feedback.className = 'feedback incorrect';
         incorrectAnswers++;
+        updateSRSForWord(correctAnswer, false);
 
         incorrectQuestions.push({
             question: currentExerciseData[currentQuestionIndex],
@@ -1086,6 +1325,7 @@ function selectMultipleChoice(selectedAnswer, correctAnswer, buttonElement) {
     });
 
     updateScore();
+    saveSRSMap();
 
     // Tự động chuyển câu sau 2 giây
     setTimeout(() => {
@@ -1217,6 +1457,7 @@ function checkAnswer(event, correctAnswer) {
             feedback.className = 'feedback correct';
             input.className = 'answer-input correct';
             correctAnswers++;
+            updateSRSForWord(correctAnswer, true);
         } else {
             feedback.innerHTML = `❌ Sai rồi! Đáp án đúng là: <strong>${correctAnswer}</strong>`;
             feedback.className = 'feedback incorrect';
@@ -1244,6 +1485,7 @@ function checkAnswer(event, correctAnswer) {
 
         // Cập nhật điểm số
         updateScore();
+        saveSRSMap();
 
         // Tự động chuyển câu sau 2 giây
         setTimeout(() => {
@@ -1255,7 +1497,7 @@ function checkAnswer(event, correctAnswer) {
                     finishExercise();
                 }, 1000);
             }
-        }, 2000);
+        }, 1500);
     }
 }
 
@@ -1276,22 +1518,22 @@ function updateScore() {
 function updateNavigationButtons() {
     const isAnswered = questionResults.some(result => result.questionIndex === currentQuestionIndex);
 
-    document.getElementById('prevBtn').style.display = currentQuestionIndex === 0 ? 'none' : 'inline-block';
-    document.getElementById('nextBtn').style.display =
-        (currentQuestionIndex === currentExerciseData.length - 1 || !isAnswered) ? 'none' : 'inline-block';
+    // document.getElementById('prevBtn').style.display = currentQuestionIndex === 0 ? 'none' : 'inline-block';
+    // document.getElementById('nextBtn').style.display =
+    //     (currentQuestionIndex === currentExerciseData.length - 1 || !isAnswered) ? 'none' : 'inline-block';
     document.getElementById('finishBtn').style.display =
         (currentQuestionIndex === currentExerciseData.length - 1 && isAnswered) ? 'inline-block' : 'none';
 }
 
 // Câu trước
-function previousQuestion() {
-    if (currentQuestionIndex > 0) {
-        currentQuestionIndex--;
-        generateQuestion();
-    }
-}
+// function previousQuestion() {
+//     if (currentQuestionIndex > 0) {
+//         currentQuestionIndex--;
+//         generateQuestion();
+//     }
+// }
 
-// Câu sau
+// // Câu sau
 function nextQuestion() {
     if (currentQuestionIndex < currentExerciseData.length - 1) {
         currentQuestionIndex++;
@@ -1342,7 +1584,8 @@ function finishExercise() {
             correct: correctAnswers,
             incorrect: incorrectAnswers,
             percentage: percentage,
-            mistakes: incorrectQuestions.slice(0, 20) // lưu tối đa 20 lỗi mẫu
+            mistakes: incorrectQuestions.slice(0, 20), // lưu tối đa 20 lỗi mẫu
+            durationMs: Math.max(0, Date.now() - (exerciseStartMs || Date.now()))
         };
         const stored = JSON.parse(localStorage.getItem('chineseVocab_history') || '[]');
         stored.unshift(entry);
@@ -1352,6 +1595,12 @@ function finishExercise() {
     } catch (e) {
         console.log('Không thể lưu lịch sử:', e);
     }
+
+    // Hiển thị thời gian
+    const durationSec = Math.round((Math.max(0, Date.now() - (exerciseStartMs || Date.now()))) / 1000);
+    const avg = (currentExerciseData.length ? (durationSec / currentExerciseData.length) : 0).toFixed(1);
+    const durEl = document.getElementById('durationInfo');
+    if (durEl) durEl.textContent = `⏱️ Thời gian: ${durationSec}s • Trung bình: ${avg}s/câu`;
 
     // Hiện lại lịch sử sau khi kết thúc
     const historySection = document.querySelector('.history-section');
@@ -1394,7 +1643,8 @@ function labelExerciseType(t) {
         trueFalse: 'Đúng/Sai',
         matching: 'Nối từ',
         listening: 'Nghe Pinyin',
-        buildSentence: 'Ghép câu'
+        buildSentence: 'Ghép câu',
+        sentenceFill: 'Điền từ trong câu'
     };
     return map[t] || t;
 }
@@ -1456,6 +1706,105 @@ function exportHistory() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+}
+
+// ===== Progress charts and insights =====
+function drawBarChart(canvasId, labels, values, color) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width, h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+    const max = Math.max(1, ...values);
+    const barW = Math.max(8, Math.floor(w / (values.length * 1.6)));
+    const gap = barW * 0.6;
+    const leftPad = 20;
+    ctx.fillStyle = '#f5f5f5';
+    ctx.fillRect(0, 0, w, h);
+    values.forEach((v, i) => {
+        const x = leftPad + i * (barW + gap);
+        const bh = Math.round((v / max) * (h - 30));
+        ctx.fillStyle = color;
+        ctx.fillRect(x, h - bh - 10, barW, bh);
+        ctx.fillStyle = '#666';
+        ctx.font = '10px sans-serif';
+        ctx.fillText(String(labels[i]).slice(0, 5), x, h - 2);
+    });
+}
+
+function renderProgress() {
+    try {
+        const hist = JSON.parse(localStorage.getItem('chineseVocab_history') || '[]');
+        if (!hist.length) return;
+        // Daily
+        const byDay = {};
+        hist.forEach(e => {
+            const d = new Date(e.timestamp);
+            const key = d.toISOString().slice(0, 10);
+            byDay[key] = (byDay[key] || 0) + (e.percentage || 0);
+            byDay[key + '_count'] = (byDay[key + '_count'] || 0) + 1;
+        });
+        const dayLabels = Object.keys(byDay)
+            .filter(k => !k.endsWith('_count'))
+            .sort()
+            .slice(-10);
+        const dayValues = dayLabels.map(k => Math.round(byDay[k] / (byDay[k + '_count'] || 1)));
+        drawBarChart('dailyChart', dayLabels, dayValues, '#667eea');
+
+        // Weekly (ISO week)
+        const byWeek = {};
+        hist.forEach(e => {
+            const d = new Date(e.timestamp);
+            const y = d.getFullYear();
+            const firstThu = new Date(d); firstThu.setDate(d.getDate() - ((d.getDay() + 6) % 7) + 3);
+            const week1 = new Date(firstThu.getFullYear(), 0, 4);
+            const week = Math.ceil((((firstThu - week1) / 86400000) + 1) / 7);
+            const key = `${y}-W${week}`;
+            byWeek[key] = (byWeek[key] || 0) + (e.percentage || 0);
+            byWeek[key + '_count'] = (byWeek[key + '_count'] || 0) + 1;
+        });
+        const weekLabels = Object.keys(byWeek)
+            .filter(k => !k.endsWith('_count'))
+            .sort()
+            .slice(-10);
+        const weekValues = weekLabels.map(k => Math.round(byWeek[k] / (byWeek[k + '_count'] || 1)));
+        drawBarChart('weeklyChart', weekLabels, weekValues, '#26a69a');
+
+        // Accuracy by exercise type
+        const byType = {};
+        hist.forEach(e => {
+            const t = e.exerciseType || 'other';
+            byType[t] = byType[t] || { correct: 0, total: 0 };
+            byType[t].correct += (e.correct || 0);
+            byType[t].total += (e.total || 0);
+        });
+        const typeBody = document.getElementById('byTypeBody');
+        if (typeBody) {
+            typeBody.innerHTML = Object.keys(byType).map(k => {
+                const c = byType[k].correct, t = byType[k].total, p = t ? Math.round(c * 100 / t) : 0;
+                return `<tr><td>${labelExerciseType(k)}</td><td>${c}</td><td>${t}</td><td>${p}%</td></tr>`;
+            }).join('');
+        }
+
+        // Accuracy by grammar (aggregate from history mistakes vs total)
+        const byGrammar = {};
+        hist.forEach(e => {
+            (e.mistakes || []).forEach(m => {
+                const g = (m.question?.grammar) || 'N/A';
+                byGrammar[g] = byGrammar[g] || { correct: 0, total: 0 };
+                byGrammar[g].total += 1;
+            });
+            // approximate corrects: total per attempt minus mistakes grammar if available
+            // For simplicity, we skip exact grammar for corrects and display mistakes distribution
+        });
+        const gramBody = document.getElementById('byGrammarBody');
+        if (gramBody) {
+            gramBody.innerHTML = Object.keys(byGrammar).map(k => {
+                const t = byGrammar[k].total; // mistakes count as proxy
+                return `<tr><td>${k}</td><td>-</td><td>${t}</td><td>-</td></tr>`;
+            }).join('');
+        }
+    } catch (e) { console.log('renderProgress failed', e); }
 }
 
 // Xem lại câu sai
@@ -1675,22 +2024,22 @@ window.onclick = function (event) {
 }
 
 // Xử lý phím tắt
-document.addEventListener('keydown', function (event) {
-    if (document.getElementById('exerciseContainer').style.display === 'block') {
-        if (event.key === 'ArrowLeft' && currentQuestionIndex > 0) {
-            const isAnswered = questionResults.some(result => result.questionIndex === currentQuestionIndex);
-            if (isAnswered) {
-                previousQuestion();
-            }
-        }
-        if (event.key === 'ArrowRight' && currentQuestionIndex < currentExerciseData.length - 1) {
-            const isAnswered = questionResults.some(result => result.questionIndex === currentQuestionIndex);
-            if (isAnswered) {
-                nextQuestion();
-            }
-        }
-    }
-});
+// document.addEventListener('keydown', function (event) {
+//     if (document.getElementById('exerciseContainer').style.display === 'block') {
+//         if (event.key === 'ArrowLeft' && currentQuestionIndex > 0) {
+//             const isAnswered = questionResults.some(result => result.questionIndex === currentQuestionIndex);
+//             if (isAnswered) {
+//                 previousQuestion();
+//             }
+//         }
+//         if (event.key === 'ArrowRight' && currentQuestionIndex < currentExerciseData.length - 1) {
+//             const isAnswered = questionResults.some(result => result.questionIndex === currentQuestionIndex);
+//             if (isAnswered) {
+//                 nextQuestion();
+//             }
+//         }
+//     }
+// });
 
 // Lấy index gốc trong mảng vocabularyData cho một item (theo cặp chinese+pinyin)
 function getOriginalIndex(item) {
@@ -1803,3 +2152,708 @@ function normalizeLatin(str) {
         .replace(/\p{Diacritic}+/gu, '')
         .replace(/đ/g, 'd');
 }
+
+// ========== Flashcards ==========
+let flashcards = [];
+let flashIndex = 0;
+let flashIsFront = true;
+
+function initFlashcards() {
+    const lesson = document.getElementById('fcLesson')?.value || 'all';
+    const favOnly = document.getElementById('fcFavorites')?.checked;
+    let data = vocabularyData;
+    if (lesson !== 'all') data = data.filter(d => d.lesson === lesson);
+    if (favOnly) data = data.filter(d => d.isFavorite);
+    flashcards = data.sort(() => 0.5 - Math.random());
+    flashIndex = 0;
+    flashIsFront = true;
+    renderFlashcard();
+}
+
+function renderFlashcard() {
+    const front = document.getElementById('flashFront');
+    const back = document.getElementById('flashBack');
+    const info = document.getElementById('flashInfo');
+    const twoSided = document.getElementById('fcTwoSided')?.checked;
+    const autoplay = document.getElementById('fcAutoplay')?.checked;
+    if (!front || !back || !info) return;
+
+    if (!flashcards.length) {
+        front.innerHTML = '<div>Chưa có thẻ. Hãy bấm "Tạo bộ thẻ".</div>';
+        back.style.display = 'none';
+        info.textContent = '';
+        return;
+    }
+    const item = flashcards[flashIndex];
+
+    const showFront = twoSided ? (Math.random() < 0.5) : true;
+    flashIsFront = showFront;
+
+    const frontHTML = `
+        <div>${getDisplayChinese(item.chinese)}</div>
+    `;
+    const backHTML = `
+        <div class="pinyin">${item.pinyin}</div>
+        <div class="viet">${item.vietnamese}</div>
+        ${item.example ? `<div style="margin-top:8px; font-size:16px; color:#555;">${item.example}</div>` : ''}
+    `;
+
+    front.innerHTML = frontHTML;
+    back.innerHTML = backHTML;
+    front.style.display = flashIsFront ? 'block' : 'none';
+    back.style.display = flashIsFront ? 'none' : 'block';
+
+    info.textContent = `${flashIndex + 1}/${flashcards.length}`;
+
+    if (autoplay) speakFlashcard();
+}
+
+function flipFlashcard() {
+    const front = document.getElementById('flashFront');
+    const back = document.getElementById('flashBack');
+    if (!front || !back) return;
+    flashIsFront = !flashIsFront;
+    front.style.display = flashIsFront ? 'block' : 'none';
+    back.style.display = flashIsFront ? 'none' : 'block';
+}
+
+function nextFlashcard() {
+    if (!flashcards.length) return;
+    flashIndex = (flashIndex + 1) % flashcards.length;
+    flashIsFront = true;
+    renderFlashcard();
+}
+function prevFlashcard() {
+    if (!flashcards.length) return;
+    flashIndex = (flashIndex - 1 + flashcards.length) % flashcards.length;
+    flashIsFront = true;
+    renderFlashcard();
+}
+
+// ====== TTS Voice Handling for Flashcards ======
+let cachedVoices = [];
+
+function loadVoicesAndPopulate() {
+    const select = document.getElementById('fcVoice');
+    if (!select) return;
+    const synth = window.speechSynthesis;
+    const voices = synth.getVoices();
+    if (!voices || voices.length === 0) return;
+    cachedVoices = voices;
+    const preferred = voices.filter(v => /zh|chinese|mandarin/i.test(`${v.lang} ${v.name}`));
+    select.innerHTML = '';
+    const list = preferred.length ? preferred : voices;
+    list.forEach((v, idx) => {
+        const opt = document.createElement('option');
+        opt.value = v.name;
+        opt.textContent = `${v.name} (${v.lang})`;
+        select.appendChild(opt);
+    });
+    if (preferred.length) select.selectedIndex = 0;
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    if ('speechSynthesis' in window) {
+        window.speechSynthesis.onvoiceschanged = loadVoicesAndPopulate;
+        // Some browsers need an initial call
+        setTimeout(loadVoicesAndPopulate, 100);
+    }
+});
+
+function resolveSelectedVoice() {
+    const name = document.getElementById('fcVoice')?.value;
+    if (!name) return null;
+    return cachedVoices.find(v => v.name === name) || null;
+}
+
+function speakText(text) {
+    if (!text) return;
+    const utter = new SpeechSynthesisUtterance(text);
+    const rate = parseFloat(document.getElementById('fcRate')?.value || '1') || 1;
+    utter.rate = rate;
+    const v = resolveSelectedVoice();
+    if (v) utter.voice = v;
+    else utter.lang = 'zh-CN';
+    speechSynthesis.cancel();
+    speechSynthesis.speak(utter);
+}
+
+function speakFlashcard() {
+    if (!flashcards.length) return;
+    const item = flashcards[flashIndex];
+    const mode = document.getElementById('fcReadMode')?.value || 'pinyin';
+    let text = '';
+    if (mode === 'hanzi') text = item.chinese;
+    else if (mode === 'both') text = `${item.chinese}，${item.pinyin}`;
+    else text = item.pinyin;
+    speakText(text);
+}
+
+document.addEventListener('keydown', function (e) {
+    const active = document.querySelector('#flashcards.tab-content');
+    if (!active || active.style.display === 'none') return;
+    if (e.code === 'Space') { e.preventDefault(); flipFlashcard(); }
+    else if (e.key === 'ArrowRight') { nextFlashcard(); }
+    else if (e.key === 'ArrowLeft') { prevFlashcard(); }
+    else if (e.key.toLowerCase() === 'a') { speakFlashcard(); }
+});
+
+// ====== Pinyin IME (auto-mark tones) ======
+const PINYIN_TONE_MAP = {
+    a: ['ā', 'á', 'ǎ', 'à'],
+    e: ['ē', 'é', 'ě', 'è'],
+    i: ['ī', 'í', 'ǐ', 'ì'],
+    o: ['ō', 'ó', 'ǒ', 'ò'],
+    u: ['ū', 'ú', 'ǔ', 'ù'],
+    ü: ['ǖ', 'ǘ', 'ǚ', 'ǜ']
+};
+
+function replaceToneVowel(syllable, tone) {
+    // Rule: a > e > (o/u) > i > ü. Place on a/e first if present.
+    const t = Math.max(1, Math.min(4, tone));
+    const order = ['a', 'e', 'o', 'u', 'i', 'ü'];
+    let base = syllable;
+    // Allow 'v' or 'uu' as 'ü'
+    base = base.replace(/v/g, 'ü').replace(/uu/g, 'ü');
+    for (const vowel of order) {
+        const idx = base.indexOf(vowel);
+        if (idx !== -1) {
+            const map = PINYIN_TONE_MAP[vowel];
+            if (!map) break;
+            const repl = map[t - 1];
+            return base.slice(0, idx) + repl + base.slice(idx + vowel.length);
+        }
+    }
+    return base;
+}
+
+function autoMarkPinyin(inputEl) {
+    const val = inputEl.value;
+    // Convert syllable+digit to diacritics, e.g. ni3 -> nǐ ; hao3 -> hǎo
+    const out = val.replace(/([a-zA-Züv]+?)([1-4])(?!\d)/g, (m, syl, d) => {
+        // Split potential compound syllables by apostrophe or space are handled by global replace
+        const lower = syl.toLowerCase();
+        const marked = replaceToneVowel(lower, parseInt(d, 10));
+        // Preserve original case: simple approach
+        return /[A-Z]/.test(syl[0]) ? marked.charAt(0).toUpperCase() + marked.slice(1) : marked;
+    });
+    if (out !== val) {
+        const start = inputEl.selectionStart;
+        inputEl.value = out;
+        inputEl.selectionStart = inputEl.selectionEnd = start;
+    }
+}
+
+function attachPinyinIME(inputEl) {
+    if (!inputEl) return;
+    inputEl.addEventListener('input', () => autoMarkPinyin(inputEl));
+    inputEl.addEventListener('keydown', (e) => {
+        // Quick ü: Alt+u or typing 'v' converts to ü via input processing
+        if ((e.altKey && e.key.toLowerCase() === 'u')) {
+            e.preventDefault();
+            insertAtCursor(inputEl, 'ü');
+        }
+    });
+    inputEl.addEventListener('focus', (e) => {
+        // Optionally show toolbar on focus
+    });
+    inputEl.addEventListener('click', (e) => positionToolbarNearInput(inputEl));
+    inputEl.addEventListener('focus', (e) => positionToolbarNearInput(inputEl));
+}
+
+function positionToolbarNearInput(inputEl) {
+    const toolbar = document.getElementById('pinyinToolbar');
+    if (!toolbar) return;
+    const rect = inputEl.getBoundingClientRect();
+    const scrollX = window.pageXOffset || document.documentElement.scrollLeft;
+    const scrollY = window.pageYOffset || document.documentElement.scrollTop;
+    toolbar.style.left = (rect.left + scrollX) + 'px';
+    toolbar.style.top = (rect.bottom + scrollY + 6) + 'px';
+    toolbar.style.display = 'block';
+
+    toolbar.querySelectorAll('.pbtn').forEach(btn => {
+        btn.onclick = () => {
+            const ch = btn.getAttribute('data-char');
+            insertAtCursor(inputEl, ch);
+            inputEl.focus();
+        };
+    });
+}
+
+function insertAtCursor(input, text) {
+    const start = input.selectionStart;
+    const end = input.selectionEnd;
+    const val = input.value;
+    input.value = val.substring(0, start) + text + val.substring(end);
+    const pos = start + text.length;
+    input.selectionStart = input.selectionEnd = pos;
+    input.dispatchEvent(new Event('input'));
+}
+
+// Attach to Pinyin-related inputs after DOM ready
+(document.addEventListener('DOMContentLoaded', () => {
+    ['newPinyin', 'editPinyin', 'answerInput'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) attachPinyinIME(el);
+    });
+}));
+
+// Wire side keypad to current answer input
+(function () {
+    document.addEventListener('click', function (e) {
+        const panel = document.getElementById('pinyinPanel');
+        if (!panel) return;
+        if (e.target && e.target.classList && e.target.classList.contains('pbtn')) {
+            const active = document.activeElement;
+            const ans = document.getElementById('answerInput');
+            const target = (active && active.id === 'answerInput') ? active : ans;
+            if (target) {
+                const ch = e.target.getAttribute('data-char');
+                insertAtCursor(target, ch);
+                target.focus();
+            }
+        }
+    });
+})();
+
+function dedupeVocabulary() {
+    const map = new Map();
+    for (const item of vocabularyData) {
+        const key = item.chinese;
+        if (!key) continue;
+        if (!map.has(key)) {
+            map.set(key, { ...item });
+            continue;
+        }
+        // Merge with existing
+        const existing = map.get(key);
+        // Prefer editedOriginal over original, and userAdded over original
+        const preferNew = (item.isEditedOriginal && !existing.isEditedOriginal)
+            || (item.isUserAdded && !existing.isUserAdded);
+        const chosen = preferNew ? { ...item } : { ...existing };
+        // Merge favorite
+        chosen.isFavorite = Boolean(existing.isFavorite || item.isFavorite);
+        // Merge srs (prefer whichever has data; if both, keep the one from chosen)
+        if (!chosen.srs && (existing.srs || item.srs)) chosen.srs = existing.srs || item.srs;
+        // Keep originalChinese reference if present
+        if (!chosen.originalChinese && (existing.originalChinese || item.originalChinese)) {
+            chosen.originalChinese = existing.originalChinese || item.originalChinese;
+        }
+        map.set(key, chosen);
+    }
+    vocabularyData = Array.from(map.values());
+}
+
+// ===== Table Virtualization =====
+const VIRT_THRESHOLD = 300;
+const VIRT_WINDOW = 60;
+const VIRT_OVERSCAN = 20;
+let virtualCache = { enabled: false, rowHeight: 44, data: null };
+
+function buildRowHTML(item, absoluteIndex) {
+    return `
+            <td>${absoluteIndex + 1}</td>
+            <td>${item.lesson}</td>
+            <td>${item.topic}</td>
+            <td class="chinese">${getDisplayChinese(item.chinese)}</td>
+            <td class="pinyin">${renderPinyin(item.pinyin)}</td>
+            <td><span class="grammar">${item.grammar}</span></td>
+            <td class="vietnamese">${item.vietnamese}</td>
+            <td>${item.example || ''}</td>
+            <td>
+                <button class="star-btn ${item.isFavorite ? 'fav' : ''}" title="Yêu thích" onclick="toggleFavorite('${item.chinese.replace(/'/g, "\\'")}')">${item.isFavorite ? '★' : '☆'}</button>
+                <button class="btn" onclick="editWord(${getOriginalIndex(item)})" style="padding: 5px 10px; font-size: 12px; margin-right: 5px; background: linear-gradient(45deg, #ff9800, #f57c00);">✏️ Sửa</button>
+                ${item.isUserAdded ?
+            `<button class="btn btn-danger" onclick="deleteWord(${getOriginalIndex(item)})" style="padding: 5px 10px; font-size: 12px;">🗑️ Xóa</button>` :
+            '<span style="color: #999; font-size: 12px;">Từ gốc</span>'
+        }
+            </td>
+        `;
+}
+
+function renderVirtualTable(data) {
+    const tbody = document.getElementById('vocabularyBody');
+    const container = document.querySelector('.table-container');
+    if (!tbody || !container) return;
+
+    // Estimate row height if empty
+    if (!virtualCache.enabled || virtualCache.data !== data) {
+        // Create a temp row to measure
+        const temp = document.createElement('tr');
+        temp.innerHTML = buildRowHTML(data[0] || { lesson: '', topic: '', chinese: '', pinyin: '', grammar: '', vietnamese: '', example: '' }, 0);
+        tbody.innerHTML = '';
+        tbody.appendChild(temp);
+        virtualCache.rowHeight = temp.getBoundingClientRect().height || 44;
+        tbody.innerHTML = '';
+        virtualCache.enabled = true;
+        virtualCache.data = data;
+        // Hide pagination when virtualizing
+        const pag = document.querySelector('.pagination-controls');
+        if (pag) pag.style.display = 'none';
+    }
+
+    const total = data.length;
+    const viewHeight = container.clientHeight;
+    const scrollTop = container.scrollTop;
+
+    const visibleCount = Math.max(1, Math.ceil(viewHeight / virtualCache.rowHeight) + VIRT_OVERSCAN * 2);
+    let start = Math.max(0, Math.floor(scrollTop / virtualCache.rowHeight) - VIRT_OVERSCAN);
+    let end = Math.min(total, start + Math.max(visibleCount, VIRT_WINDOW));
+
+    const topSpacerH = start * virtualCache.rowHeight;
+    const bottomSpacerH = Math.max(0, (total - end) * virtualCache.rowHeight);
+
+    // Build rows
+    const rows = [];
+    if (topSpacerH > 0) rows.push(`<tr><td colspan="9" style="height:${Math.round(topSpacerH)}px;"></td></tr>`);
+    for (let i = start; i < end; i++) {
+        const item = data[i];
+        rows.push(`<tr>${buildRowHTML(item, i)}</tr>`);
+    }
+    if (bottomSpacerH > 0) rows.push(`<tr><td colspan="9" style="height:${Math.round(bottomSpacerH)}px;"></td></tr>`);
+
+    tbody.innerHTML = rows.join('');
+
+    // Info line
+    const pageInfo = document.getElementById('pageInfo');
+    if (pageInfo) pageInfo.textContent = `Tổng ${total} từ`;
+
+    // Attach scroll handler once
+    if (!container._virtBound) {
+        container.addEventListener('scroll', () => {
+            if (!virtualCache.enabled) return;
+            renderVirtualTable(virtualCache.data);
+        });
+        container._virtBound = true;
+    }
+}
+
+// ===== Lessons/Topics Management =====
+function refreshManageSelectors() {
+    const lessonSel = document.getElementById('manageLesson');
+    if (lessonSel) {
+        const lessons = [...new Set(vocabularyData.map(i => i.lesson))].sort();
+        lessonSel.innerHTML = lessons.map(l => `<option value="${l}">${l}</option>`).join('');
+    }
+    renderGroupStats();
+}
+
+document.addEventListener('DOMContentLoaded', refreshManageSelectors);
+
+function createLesson() {
+    const name = (document.getElementById('newLessonName').value || '').trim();
+    if (!name) { alert('Nhập tên bài.'); return; }
+    if (vocabularyData.some(i => i.lesson === name)) { alert('Bài đã tồn tại.'); return; }
+    // Không cần thêm từ, chỉ đưa vào danh sách khi thêm từ mới thuộc bài này
+    document.getElementById('newLesson').insertAdjacentHTML('beforeend', `<option value="${name}">${name}</option>`);
+    updateLessonOptions();
+    refreshManageSelectors();
+    alert('Đã tạo bài.');
+}
+
+function renameLesson() {
+    const lessonSel = document.getElementById('manageLesson');
+    const from = lessonSel?.value;
+    const to = (document.getElementById('newLessonName').value || '').trim();
+    if (!from || !to) { alert('Chọn bài và nhập tên mới.'); return; }
+    if (from === to) return;
+    vocabularyData.forEach(i => { if (i.lesson === from) i.lesson = to; });
+    saveToLocalStorage();
+    displayVocabulary();
+    updateStats();
+    updateLessonOptions();
+    refreshManageSelectors();
+    alert(`Đã đổi tên bài "${from}" → "${to}".`);
+}
+
+function deleteLesson() {
+    const lessonSel = document.getElementById('manageLesson');
+    const name = lessonSel?.value;
+    if (!name) { alert('Chọn bài.'); return; }
+    const count = vocabularyData.filter(i => i.lesson === name).length;
+    if (!confirm(`Xóa bài "${name}" và ${count} từ thuộc bài này?`)) return;
+    vocabularyData = vocabularyData.filter(i => i.lesson !== name);
+    saveToLocalStorage();
+    displayVocabulary();
+    updateStats();
+    updateLessonOptions();
+    refreshManageSelectors();
+}
+
+function createTopic() {
+    const target = (document.getElementById('targetTopic').value || '').trim();
+    if (!target) { alert('Nhập tên chủ đề.'); return; }
+    if (vocabularyData.some(i => i.topic === target)) { alert('Chủ đề đã tồn tại.'); return; }
+    // Không cần thêm từ, chủ đề xuất hiện khi có ít nhất một từ thuộc chủ đề
+    alert('Đã tạo chủ đề. Thêm từ để chủ đề xuất hiện trong danh sách.');
+    renderGroupStats();
+}
+
+function renameTopic() {
+    const from = (document.getElementById('manageTopic').value || '').trim();
+    const to = (document.getElementById('targetTopic').value || '').trim();
+    if (!from || !to) { alert('Nhập chủ đề nguồn và tên mới.'); return; }
+    if (from === to) return;
+    let changed = 0;
+    vocabularyData.forEach(i => { if (i.topic === from) { i.topic = to; changed++; } });
+    if (!changed) { alert('Không tìm thấy từ thuộc chủ đề nguồn.'); return; }
+    saveToLocalStorage();
+    displayVocabulary();
+    updateStats();
+    renderGroupStats();
+    alert(`Đã đổi tên chủ đề "${from}" → "${to}" (${changed} từ).`);
+}
+
+function mergeTopics() {
+    const from = (document.getElementById('manageTopic').value || '').trim();
+    const to = (document.getElementById('targetTopic').value || '').trim();
+    if (!from || !to) { alert('Nhập chủ đề nguồn và chủ đề đích.'); return; }
+    if (from === to) { alert('Chọn hai chủ đề khác nhau.'); return; }
+    let changed = 0;
+    vocabularyData.forEach(i => { if (i.topic === from) { i.topic = to; changed++; } });
+    if (!changed) { alert('Không có từ nào thuộc chủ đề nguồn.'); return; }
+    saveToLocalStorage();
+    displayVocabulary();
+    updateStats();
+    renderGroupStats();
+    alert(`Đã gộp ${changed} từ từ chủ đề "${from}" và "${to}".`);
+}
+
+function deleteTopic() {
+    const topic = (document.getElementById('manageTopic').value || '').trim();
+    if (!topic) { alert('Nhập chủ đề cần xóa.'); return; }
+    const count = vocabularyData.filter(i => i.topic === topic).length;
+    if (!count) { alert('Không có từ nào thuộc chủ đề này.'); return; }
+    if (!confirm(`Loại bỏ chủ đề của ${count} từ? (Không xóa từ, chỉ xóa nhãn chủ đề)`)) return;
+    vocabularyData.forEach(i => { if (i.topic === topic) i.topic = 'Chung'; });
+    saveToLocalStorage();
+    displayVocabulary();
+    updateStats();
+    renderGroupStats();
+}
+
+function renderGroupStats() {
+    const byLessonBody = document.getElementById('statsByLessonBody');
+    const byTopicBody = document.getElementById('statsByTopicBody');
+    if (byLessonBody) {
+        const map = new Map();
+        vocabularyData.forEach(i => map.set(i.lesson, (map.get(i.lesson) || 0) + 1));
+        byLessonBody.innerHTML = Array.from(map.entries())
+            .sort((a, b) => a[0].localeCompare(b[0]))
+            .map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
+    }
+    if (byTopicBody) {
+        const map = new Map();
+        vocabularyData.forEach(i => map.set(i.topic, (map.get(i.topic) || 0) + 1));
+        byTopicBody.innerHTML = Array.from(map.entries())
+            .sort((a, b) => a[0].localeCompare(b[0]))
+            .map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
+    }
+}
+
+// ===== Sentence Fill Exercise =====
+function buildSentenceFromExample(item) {
+    const ex = item.example || '';
+    if (!ex || ex.length < 2) return null;
+    // Replace target chinese with blanks if present; else remove 1-2 random characters as blanks
+    let sentence = ex;
+    const blank = '____';
+    if (sentence.includes(item.chinese)) {
+        sentence = sentence.replaceAll(item.chinese, blank);
+        return { sentence, answers: [item.chinese] };
+    }
+    // Fallback: blank out first occurrence of any Hanzi from the word
+    const chars = Array.from(item.chinese);
+    for (const ch of chars) {
+        const idx = sentence.indexOf(ch);
+        if (idx !== -1) {
+            sentence = sentence.slice(0, idx) + blank + sentence.slice(idx + 1);
+            return { sentence, answers: [item.chinese] };
+        }
+    }
+    // As last resort just create a single blank at center
+    const mid = Math.max(0, Math.floor(sentence.length / 2) - 1);
+    sentence = sentence.slice(0, mid) + blank + sentence.slice(mid + 2);
+    return { sentence, answers: [item.chinese] };
+}
+
+function renderSentenceFill(currentItem) {
+    const data = buildSentenceFromExample(currentItem);
+    const display = data ? data.sentence : '____';
+
+    // Build options: correct + distractors from same lesson or random
+    const options = new Set([currentItem.chinese]);
+    const pool = vocabularyData
+        .filter(v => v.chinese !== currentItem.chinese && (v.lesson === currentItem.lesson))
+        .sort(() => 0.5 - Math.random());
+    for (const v of pool) { if (options.size >= 4) break; options.add(v.chinese); }
+    if (options.size < 4) {
+        const extra = vocabularyData.filter(v => !options.has(v.chinese)).sort(() => 0.5 - Math.random());
+        for (const v of extra) { if (options.size >= 4) break; options.add(v.chinese); }
+    }
+    const optionList = Array.from(options).sort(() => 0.5 - Math.random());
+
+    const questionHTML = `
+            <div style="text-align:center;">
+                <h4 style="margin-bottom: 14px;">Kéo thả hoặc gõ từ còn thiếu:</h4>
+                <p style="font-size:20px; margin:12px 0;">${display}</p>
+                <p style="font-size:16px; color:#e74c3c; margin:8px 0;">Pinyin: ${currentItem.pinyin}</p>
+                <div style="display:flex; gap:10px; align-items:center; justify-content:center; margin-top:12px;">
+                    <div ondragover="allowDrop(event)" ondrop="dropWord(event)" data-answer="${currentItem.chinese.replace(/"/g, '&quot;')}" 
+                         style="min-width:160px; min-height:42px; border:2px dashed #90caf9; border-radius:10px; padding:8px 12px; background:#f5fbff;">
+                        <input type="text" id="answerInput" class="answer-input" placeholder="Thả vào hoặc nhập..." 
+                               onkeypress="checkAnswer(event, '${currentItem.chinese.replace(/'/g, "\\'")}')" style="width:100%;">
+                    </div>
+                </div>
+                <div style="display:flex; gap:10px; flex-wrap:wrap; justify-content:center; margin-top:12px;">
+                    ${optionList.map(w => `
+                        <button class="btn" draggable="true" ondragstart="dragWord(event, '${w.replace(/'/g, "\\'")}')" 
+                                onclick="document.getElementById('answerInput').value='${w.replace(/'/g, "\\'")}';" 
+                                style="padding:8px 12px; border:1px solid #ddd; border-radius:999px; background:#fff;">
+                            ${w}
+                        </button>
+                    `).join('')}
+                </div>
+                <div id="feedback" class="feedback" style="display:none;"></div>
+            </div>
+        `;
+    return questionHTML;
+}
+
+// Drag and drop handlers for sentence fill
+function dragWord(ev, text) { ev.dataTransfer.setData('text/plain', text); }
+function allowDrop(ev) { ev.preventDefault(); }
+function dropWord(ev) {
+    ev.preventDefault();
+    const text = ev.dataTransfer.getData('text/plain');
+    const input = document.getElementById('answerInput');
+    if (input) {
+        input.value = text;
+        // Trigger a check as user would press Enter automatically? Keep manual: optional auto-check
+        // Simulate enter keypress
+        const correct = ev.currentTarget.getAttribute('data-answer') || '';
+        // Reuse existing checkAnswer by creating a dummy event with key==='Enter'
+        const e = new KeyboardEvent('keypress', { key: 'Enter' });
+        Object.defineProperty(e, 'target', { writable: false, value: input });
+        checkAnswer(e, correct);
+    }
+}
+
+// ===== Favorites Share (link-embed base64 JSON) =====
+function generateFavoritesShare() {
+    const favs = vocabularyData.filter(i => i.isFavorite).map(i => i.chinese);
+    const payload = { type: 'favorites', ts: Date.now(), items: favs };
+    const b64 = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+    const link = location.origin + location.pathname + '#fav=' + b64;
+    const el = document.getElementById('favShareLink');
+    if (el) { el.value = link; el.select(); document.execCommand('copy'); }
+    alert('Đã tạo link và sao chép vào clipboard!');
+}
+
+function importFavoritesShare() {
+    const el = document.getElementById('favImportLink');
+    const txt = el?.value.trim();
+    if (!txt) { alert('Dán link chia sẻ vào trước.'); return; }
+    try {
+        const hash = txt.includes('#') ? txt.split('#')[1] : txt;
+        const param = new URLSearchParams(hash.startsWith('?') ? hash.slice(1) : hash);
+        let b64 = null;
+        if (hash.startsWith('fav=')) b64 = hash.slice(4);
+        else if (param.has('fav')) b64 = param.get('fav');
+        if (!b64) { alert('Link không hợp lệ.'); return; }
+        const payload = JSON.parse(decodeURIComponent(escape(atob(b64))));
+        if (!payload || payload.type !== 'favorites' || !Array.isArray(payload.items)) { alert('Dữ liệu không hợp lệ.'); return; }
+        const favSet = new Set(payload.items);
+        vocabularyData.forEach(i => { if (favSet.has(i.chinese)) i.isFavorite = true; });
+        saveToLocalStorage();
+        displayVocabulary();
+        alert(`Đã import ${payload.items.length} từ yêu thích.`);
+    } catch (e) {
+        alert('Import thất bại: ' + e.message);
+    }
+}
+
+let exerciseTimerInterval = null;
+
+function setExerciseActive(active) {
+    const tab = document.getElementById('exercise');
+    if (!tab) return;
+    if (active) tab.classList.add('exercise-active');
+    else tab.classList.remove('exercise-active');
+}
+
+function startTimer() {
+    const disp = document.getElementById('timerDisplay');
+    if (exerciseTimerInterval) clearInterval(exerciseTimerInterval);
+    exerciseTimerInterval = setInterval(() => {
+        if (!exerciseStartMs || !disp) return;
+        const secs = Math.floor((Date.now() - exerciseStartMs) / 1000);
+        const mm = String(Math.floor(secs / 60)).padStart(2, '0');
+        const ss = String(secs % 60).padStart(2, '0');
+        disp.textContent = `${mm}:${ss}`;
+    }, 500);
+}
+
+// override/extend startExercise
+const _startExercise_old = startExercise;
+startExercise = function () {
+    _startExercise_old();
+    setExerciseActive(true);
+    startTimer();
+    // show finish button
+    const finishBtn = document.getElementById('finishBtn');
+    if (finishBtn) finishBtn.style.display = 'inline-block';
+};
+
+const _finishExercise_old = finishExercise;
+finishExercise = function () {
+    if (exerciseTimerInterval) { clearInterval(exerciseTimerInterval); exerciseTimerInterval = null; }
+    _finishExercise_old();
+    setExerciseActive(false);
+};
+
+// Extend finishExercise results to include average per question
+const _finishExerciseCore = finishExercise;
+
+function stopExercise() {
+    if (!confirm('Dừng bài hiện tại? Kết quả sẽ không được lưu.')) return;
+    if (exerciseTimerInterval) { clearInterval(exerciseTimerInterval); exerciseTimerInterval = null; }
+    // reset UI to initial state
+    document.getElementById('exerciseContainer').style.display = 'none';
+    document.getElementById('exerciseResults').style.display = 'none';
+    setExerciseActive(false);
+    // clear progress bar and counters
+    const disp = document.getElementById('timerDisplay'); if (disp) disp.textContent = '00:00';
+    document.getElementById('progressFill').style.width = '0%';
+    document.getElementById('correctCount').textContent = '0';
+    document.getElementById('incorrectCount').textContent = '0';
+    document.getElementById('currentQuestion').textContent = '1';
+    document.getElementById('totalQuestions').textContent = '0';
+}
+
+function closeResultModal() { document.getElementById('resultModal').style.display = 'none'; }
+
+// Replace finishExercise's display logic to show modal only
+const __finishExercise_original = finishExercise;
+finishExercise = function () {
+    __finishExercise_original();
+    // Hide inline results, use modal instead
+    const inlineRes = document.getElementById('exerciseResults');
+    if (inlineRes) inlineRes.style.display = 'none';
+
+    // Populate modal
+    const percentage = Math.round((correctAnswers / currentExerciseData.length) * 100);
+    const scoreText = `${correctAnswers}/${currentExerciseData.length} (${percentage}%)`;
+    const fsM = document.getElementById('finalScoreModal'); if (fsM) fsM.textContent = scoreText;
+    const encM = document.getElementById('encouragementModal'); if (encM) encM.textContent = document.getElementById('encouragement')?.textContent || '';
+    const durM = document.getElementById('durationInfoModal'); if (durM) durM.textContent = document.getElementById('durationInfo')?.textContent || '';
+
+    // Toggle modal buttons
+    const rb = document.getElementById('reviewBtnModal');
+    if (rb) rb.style.display = (incorrectQuestions && incorrectQuestions.length > 0) ? 'inline-block' : 'none';
+    const hb = document.getElementById('historyBtnModal');
+    if (hb) hb.style.display = 'inline-block';
+
+    // Show modal
+    const modal = document.getElementById('resultModal'); if (modal) modal.style.display = 'block';
+};
