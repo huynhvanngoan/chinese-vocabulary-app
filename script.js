@@ -1,3 +1,28 @@
+// Cho phép bấm nút “Gợi ý lại” mà không bắt đầu bài
+function recomputeAutoPlan() {
+    const el = document.getElementById('autoPlan');
+    if (el) el.checked = true;
+    // Gọi chung logic trong startExercise nhưng chỉ phần lập kế hoạch
+    const fake = document.createElement('div');
+    // trích xuất đoạn kế hoạch từ startExercise: lặp lại nhỏ
+    let suggested = 0;
+    const dueSize = getDueItemsReference().size;
+    suggested += Math.min(20, Math.ceil(dueSize * 0.6));
+    const recentMist = getRecentMistakeSet(14).size;
+    suggested += Math.min(15, Math.ceil(recentMist * 0.5));
+    const favCount = vocabularyData.filter(v => v.isFavorite).length;
+    suggested += Math.min(10, Math.ceil(favCount * 0.05));
+    suggested = Math.max(10, Math.min(50, suggested || 10));
+    const q = document.getElementById('questionCount'); if (q) q.value = String(suggested);
+    const w1 = document.getElementById('wFillVietnamese');
+    const w2 = document.getElementById('wFillBlank');
+    const w3 = document.getElementById('wFillPinyin');
+    const w4 = document.getElementById('wMC');
+    if (w1 && w2 && w3 && w4) { w1.value = 50; w2.value = 30; w3.value = 20; w4.value = 0; }
+    const mix = document.getElementById('mixMode'); if (mix) mix.checked = true;
+    const info = document.getElementById('autoPlanInfo');
+    if (info) info.textContent = `Đề xuất: ${q ? q.value : suggested} câu • 50/30/20/0`;
+}
 // Dữ liệu từ vựng được khởi tạo an toàn
 let vocabularyData = [];
 
@@ -111,24 +136,32 @@ function ensureSRSDefaults() {
     const nowIso = new Date().toISOString();
     vocabularyData.forEach(item => {
         if (!item.srs) {
-            item.srs = { ease: 2.5, interval: 0, due: nowIso, streak: 0, lastReviewed: null };
+            item.srs = { ease: 2.5, interval: 0, due: nowIso, streak: 0, lastReviewed: null, level: 1, leechCount: 0 };
         } else {
             if (typeof item.srs.ease !== 'number') item.srs.ease = 2.5;
             if (typeof item.srs.interval !== 'number') item.srs.interval = 0;
             if (!item.srs.due) item.srs.due = nowIso;
             if (typeof item.srs.streak !== 'number') item.srs.streak = 0;
             if (!('lastReviewed' in item.srs)) item.srs.lastReviewed = null;
+            if (typeof item.srs.level !== 'number') item.srs.level = 1;
+            if (typeof item.srs.leechCount !== 'number') item.srs.leechCount = 0;
         }
     });
 }
 
 function getDueItemsReference() {
     const now = new Date();
-    return new Set(
-        vocabularyData
-            .filter(it => new Date(it.srs?.due || now) <= now)
-            .map(it => it.chinese)
-    );
+    // Ưu tiên leech và ít interval
+    const due = vocabularyData.filter(it => new Date(it.srs?.due || now) <= now);
+    const sorted = due.sort((a, b) => {
+        const la = a.srs?.leechCount || 0;
+        const lb = b.srs?.leechCount || 0;
+        if (la !== lb) return lb - la;
+        const ia = a.srs?.interval || 0;
+        const ib = b.srs?.interval || 0;
+        return ia - ib;
+    });
+    return new Set(sorted.map(it => it.chinese));
 }
 
 function updateSRSForWord(wordChinese, isCorrect) {
@@ -143,10 +176,16 @@ function updateSRSForWord(wordChinese, isCorrect) {
         else if (srs.streak === 2) srs.interval = 3;
         else srs.interval = Math.round((srs.interval || 1) * (srs.ease || 2.5));
         srs.ease = Math.max(1.3, (srs.ease || 2.5));
+        // Level up (cap 5)
+        srs.level = Math.min(5, (srs.level || 1) + 1);
     } else {
         srs.streak = 0;
         srs.interval = 1;
         srs.ease = Math.max(1.3, (srs.ease || 2.5) - 0.2);
+        // Leech detection: tăng cờ leech nếu sai nhiều lần gần đây
+        srs.leechCount = (srs.leechCount || 0) + 1;
+        // Level down (floor 1)
+        srs.level = Math.max(1, (srs.level || 1) - 1);
     }
     const dueDate = new Date(now.getTime() + srs.interval * 24 * 60 * 60 * 1000);
     srs.due = dueDate.toISOString();
@@ -963,6 +1002,7 @@ function startExercise() {
     const questionCount = parseInt(document.getElementById('questionCount').value);
     const dueOnly = document.getElementById('dueOnly')?.checked;
     const reviewMistakes = document.getElementById('recentMistakes')?.checked;
+    const autoPlan = document.getElementById('autoPlan')?.checked;
 
     // Lọc dữ liệu theo bài học
     let filteredData = vocabularyData;
@@ -993,6 +1033,9 @@ function startExercise() {
                 const iv = it.srs?.interval || 0;
                 score += Math.max(0, 3 - Math.min(3, iv));
             }
+            // lower level gets higher priority
+            const lvl = it.srs?.level || 1;
+            score += Math.max(0, 4 - Math.min(4, lvl));
             return { it, score };
         });
         scored.sort((a, b) => b.score - a.score || Math.random() - 0.5);
@@ -1000,7 +1043,28 @@ function startExercise() {
     }
 
     // Đề hỗn hợp theo tỉ lệ
-    const mixMode = document.getElementById('mixMode')?.checked;
+    let mixMode = document.getElementById('mixMode')?.checked;
+    // Auto planning: gợi ý mix + số câu dựa trên due/leech/mistakes/favorites
+    if (autoPlan) {
+        let suggested = 0;
+        const dueSize = getDueItemsReference().size;
+        suggested += Math.min(20, Math.ceil(dueSize * 0.6));
+        const recentMist = getRecentMistakeSet(14).size;
+        suggested += Math.min(15, Math.ceil(recentMist * 0.5));
+        const favCount = vocabularyData.filter(v => v.isFavorite).length;
+        suggested += Math.min(10, Math.ceil(favCount * 0.05));
+        suggested = Math.max(10, Math.min(50, suggested || 10));
+        const q = document.getElementById('questionCount'); if (q) q.value = String(suggested);
+        // Gợi ý tỉ lệ: 50% H→V, 30% V→H, 20% Pinyin nếu có
+        const w1 = document.getElementById('wFillVietnamese');
+        const w2 = document.getElementById('wFillBlank');
+        const w3 = document.getElementById('wFillPinyin');
+        const w4 = document.getElementById('wMC');
+        if (w1 && w2 && w3 && w4) { w1.value = 50; w2.value = 30; w3.value = 20; w4.value = 0; }
+        const mix = document.getElementById('mixMode'); if (mix) { mix.checked = true; mixMode = true; }
+        const info = document.getElementById('autoPlanInfo');
+        if (info) info.textContent = `Đề xuất: ${q ? q.value : suggested} câu • 50/30/20/0`;
+    }
     if (mixMode && filteredData.length > 0) {
         const weights = {
             fillVietnamese: parseInt(document.getElementById('wFillVietnamese')?.value || '0') || 0,
@@ -1063,6 +1127,17 @@ function startExercise() {
     exerciseStartMs = Date.now();
 
     generateQuestion();
+}
+
+// Ôn đến hạn nhanh: chọn dueOnly và số câu = số từ đến hạn (tối đa 50)
+function startDueOnlyQuick() {
+    const dueSet = getDueItemsReference();
+    const dueCount = Math.min(50, dueSet.size || 0);
+    const dueOnly = document.getElementById('dueOnly');
+    const q = document.getElementById('questionCount');
+    if (dueOnly) dueOnly.checked = true;
+    if (q) q.value = String(Math.max(5, dueCount || 10));
+    startExercise();
 }
 
 // Preset ratio helper for mix mode
@@ -2308,12 +2383,17 @@ function getFilteredSortedData() {
     const grammar = document.getElementById('filterGrammar')?.value || 'all';
     const sort = document.getElementById('sortSelect')?.value || 'default';
     const favOnly = document.getElementById('favOnly')?.checked || false;
+    // Optional: filter by level via query syntax level:1..5 in search
+    let levelFilter = null;
+    const m = /\blevel:(\d)\b/.exec(searchRaw);
+    if (m) levelFilter = parseInt(m[1], 10);
 
     let data = [...vocabularyData];
     if (lesson !== 'all') data = data.filter(i => i.lesson === lesson);
     if (topic) data = data.filter(i => (i.topic || '').toLowerCase().includes(topic));
     if (grammar !== 'all') data = data.filter(i => (i.grammar || '').toLowerCase() === grammar.toLowerCase());
     if (favOnly) data = data.filter(i => i.isFavorite);
+    if (levelFilter) data = data.filter(i => (i.srs?.level || 1) === levelFilter);
     if (search) {
         data = data.filter(i =>
             i.chinese.includes(searchRaw) ||
@@ -2453,6 +2533,15 @@ function prevFlashcard() {
     flashIndex = (flashIndex - 1 + flashcards.length) % flashcards.length;
     flashIsFront = true;
     renderFlashcard();
+}
+
+// Đánh dấu đúng/sai trên flashcard → cập nhật SRS và tiến tới thẻ sau
+function flashMark(correct) {
+    if (!flashcards.length) return;
+    const item = flashcards[flashIndex];
+    updateSRSForWord(item.chinese, !!correct);
+    saveSRSMap();
+    nextFlashcard();
 }
 
 // ====== TTS Voice Handling for Flashcards ======
@@ -2683,6 +2772,7 @@ function buildRowHTML(item, absoluteIndex) {
             <td class="chinese">${getDisplayChinese(item.chinese)}</td>
             <td class="pinyin">${renderPinyin(item.pinyin)}</td>
             <td><span class="grammar">${item.grammar}</span></td>
+            <td>${item.srs?.level || 1}</td>
             <td class="vietnamese">${item.vietnamese}</td>
             <td>${item.example || ''}</td>
             <td>

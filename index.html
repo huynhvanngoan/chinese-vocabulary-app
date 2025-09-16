@@ -93,6 +93,7 @@
                             <th>Chữ Hán</th>
                             <th>Pinyin</th>
                             <th>Từ loại</th>
+                            <th>Level</th>
                             <th>Nghĩa tiếng Việt</th>
                             <th>Ví dụ</th>
                             <th>Hành động</th>
@@ -367,10 +368,17 @@
                                 aria-label="Ưu tiên yêu thích"> Ưu tiên yêu thích</label>
                         <label class="inline-label"><input id="preferLowSRS" type="checkbox"
                                 aria-label="Ưu tiên ít thành thạo"> Ưu tiên ít thành thạo</label>
+                        <label class="inline-label"><input id="autoPlan" type="checkbox" checked
+                                aria-label="Tự động gợi ý số câu và tỉ lệ"> Tự động gợi ý</label>
                     </div>
 
                     <button class="btn" onclick="startExercise()">🎯 Bắt đầu làm bài</button>
+                    <button class="btn" onclick="startDueOnlyQuick()" aria-label="Ôn các từ đến hạn ngay">⏱️ Ôn đến
+                        hạn</button>
+                    <button class="btn" onclick="recomputeAutoPlan()" aria-label="Gợi ý lại số câu và tỉ lệ">🧮 Gợi ý
+                        lại</button>
                     <button class="btn" onclick="stopExercise()" aria-label="Dừng bài hiện tại">⏹️ Dừng bài</button>
+                    <span id="autoPlanInfo" style="font-size:12px; color:#64748b; margin-left:8px;"></span>
                 </div>
 
                 <div class="exercise-controls" style="margin-top: 8px;">
@@ -500,6 +508,8 @@
                     <span id="flashInfo" style="min-width:120px; text-align:center;"></span>
                     <button class="btn" onclick="nextFlashcard()">Sau ➡️</button>
                     <button class="btn" onclick="speakFlashcard()">🔊 Phát âm</button>
+                    <button class="btn" onclick="flashMark(false)">❌ Sai</button>
+                    <button class="btn" onclick="flashMark(true)">✅ Đúng</button>
                 </div>
                 <div class="flashcards-hint">Phím tắt: Space (lật), ←/→ (trước/sau), A (phát âm)</div>
             </div>
