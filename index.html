@@ -21,6 +21,10 @@
             <button class="tab" onclick="showTab('manager')">🗂️ Quản lý</button>
             <button class="tab" onclick="showTab('download')">📥 Tải xuống</button>
             <button class="tab" onclick="showTab('progress')">📊 Tiến độ</button>
+            <!-- <label class="inline-label" style="justify-content:center;">
+                <input id="toggleDark" type="checkbox" aria-label="Bật/tắt Dark mode"
+                    onchange="toggleDarkMode(this.checked)"> Dark mode
+            </label> -->
         </div>
 
         <!-- Tab từ vựng -->
@@ -414,7 +418,8 @@
                             <div id="questionCard" class="question-card"></div>
                             <div class="exercise-nav-row">
                                 <!-- <button class="btn" onclick="previousQuestion()" id="prevBtn" aria-label="Câu trước">⬅️ Câu trước</button> -->
-                                <button class="btn" onclick="finishExercise()" id="finishBtn" style="display: none;">🏁 Kết thúc</button>
+                                <button class="btn" onclick="finishExercise()" id="finishBtn" style="display: none;">🏁
+                                    Kết thúc</button>
                                 <!-- <button class="btn" onclick="nextQuestion()" id="nextBtn" aria-label="Câu sau">Câu sau ➡️</button> -->
                             </div>
                         </div>
@@ -504,6 +509,28 @@
         <div id="progress" class="tab-content">
             <div class="exercise-section">
                 <h3>📈 Tiến độ học tập</h3>
+                <div class="exercise-controls progress-filters"
+                    style="margin-bottom:10px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));">
+                    <label for="progFrom">Từ ngày</label><input type="date" id="progFrom" aria-label="Từ ngày">
+                    <label for="progTo">Đến ngày</label><input type="date" id="progTo" aria-label="Đến ngày">
+                    <select id="progLesson" aria-label="Lọc theo bài"></select>
+                    <select id="progType" aria-label="Lọc theo loại bài">
+                        <option value="all">Tất cả loại</option>
+                        <option value="fillBlank">Điền chữ Hán</option>
+                        <option value="fillVietnamese">Điền nghĩa Việt</option>
+                        <option value="fillPinyin">Điền Pinyin</option>
+                        <option value="multipleChoice">Trắc nghiệm Hán</option>
+                        <option value="multipleChoiceVietnamese">Trắc nghiệm nghĩa</option>
+                        <option value="trueFalse">Đúng/Sai</option>
+                        <option value="matching">Nối từ</option>
+                        <option value="listening">Nghe Pinyin</option>
+                        <option value="buildSentence">Ghép câu</option>
+                        <option value="sentenceFill">Điền từ trong câu</option>
+                    </select>
+                    <button class="btn" onclick="applyProgressFiltersUI()">Lọc</button>
+                    <button class="btn" onclick="resetProgressFilters()"
+                        style="background: linear-gradient(45deg, #64748b, #475569);">Xóa lọc</button>
+                </div>
                 <div class="progress-grid">
                     <div class="card">
                         <h5>Ngày gần đây</h5>
@@ -512,6 +539,26 @@
                     <div class="card">
                         <h5>Tuần gần đây</h5>
                         <canvas id="weeklyChart" width="400" height="160"></canvas>
+                    </div>
+                </div>
+                <div class="progress-grid" style="margin-top:10px;">
+                    <div class="card" style="grid-column: 1 / -1;">
+                        <h5>Chi tiết theo ngày</h5>
+                        <canvas id="dailyDetailChart" width="800" height="200"></canvas>
+                        <div id="dailyDetailInfo" style="font-size:12px; color:#666; margin-top:6px;"></div>
+                        <table class="mini-table" style="margin-top:8px;">
+                            <thead>
+                                <tr>
+                                    <th>Thời điểm</th>
+                                    <th>Loại</th>
+                                    <th>Bài</th>
+                                    <th>Điểm</th>
+                                    <th>Số câu</th>
+                                    <th>Thời gian (s)</th>
+                                </tr>
+                            </thead>
+                            <tbody id="dailyDetailBody"></tbody>
+                        </table>
                     </div>
                 </div>
                 <div class="progress-grid" style="margin-top:10px;">
@@ -524,6 +571,8 @@
                                     <th>Đúng</th>
                                     <th>Tổng</th>
                                     <th>%</th>
+                                    <th>Số bài</th>
+                                    <th>Thời gian TB (s/câu)</th>
                                 </tr>
                             </thead>
                             <tbody id="byTypeBody"></tbody>
@@ -535,9 +584,9 @@
                             <thead>
                                 <tr>
                                     <th>Từ loại</th>
-                                    <th>Đúng</th>
-                                    <th>Tổng</th>
-                                    <th>%</th>
+                                    <th>Sai</th>
+                                    <th>% trong lỗi</th>
+                                    <th>Từ sai tiêu biểu</th>
                                 </tr>
                             </thead>
                             <tbody id="byGrammarBody"></tbody>
@@ -645,6 +694,7 @@
             </form>
         </div>
     </div>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="script.js"></script>
 </body>
 

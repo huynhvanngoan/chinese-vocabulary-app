@@ -54,6 +54,54 @@ function getDisplayChinese(text) {
     return text;
 }
 
+// ===== Persist/Restore UI state for filters & table =====
+const UI_STATE_KEY = 'chineseVocab_uiState_v1';
+
+function loadUIState() {
+    try {
+        const raw = localStorage.getItem(UI_STATE_KEY);
+        if (!raw) return;
+        const st = JSON.parse(raw);
+        const byId = id => document.getElementById(id);
+        const setVal = (id, val) => { const el = byId(id); if (el && val !== undefined) el.value = val; };
+        const setChk = (id, val) => { const el = byId(id); if (el && typeof val === 'boolean') el.checked = val; };
+
+        setVal('searchInput', st.search || '');
+        setVal('filterLesson', st.lesson || 'all');
+        setVal('filterTopic', st.topic || '');
+        setVal('filterGrammar', st.grammar || 'all');
+        setVal('sortSelect', st.sort || 'default');
+        setChk('favOnly', !!st.favOnly);
+        setChk('togglePinyin', st.showPinyin !== false);
+        setVal('cnDisplay', st.cnDisplay || chineseDisplayMode);
+        if (st.pageSize) {
+            const ps = byId('pageSize');
+            if (ps) {
+                ps.value = String(st.pageSize);
+                pageSize = parseInt(st.pageSize) || pageSize;
+            }
+        }
+    } catch { }
+}
+
+function saveUIState() {
+    try {
+        const byId = id => document.getElementById(id);
+        const state = {
+            search: byId('searchInput')?.value || '',
+            lesson: byId('filterLesson')?.value || 'all',
+            topic: byId('filterTopic')?.value || '',
+            grammar: byId('filterGrammar')?.value || 'all',
+            sort: byId('sortSelect')?.value || 'default',
+            favOnly: !!byId('favOnly')?.checked,
+            showPinyin: !!byId('togglePinyin')?.checked,
+            cnDisplay: byId('cnDisplay')?.value || chineseDisplayMode,
+            pageSize: parseInt(byId('pageSize')?.value || pageSize) || pageSize
+        };
+        localStorage.setItem(UI_STATE_KEY, JSON.stringify(state));
+    } catch { }
+}
+
 // ========= SRS & Pagination & Timing =========
 let exerciseStartMs = 0;
 let pageSize = 50;
@@ -152,6 +200,7 @@ function changePage(delta) {
 function setPageSize(val) {
     pageSize = parseInt(val) || 50;
     currentPage = 1;
+    saveUIState();
     displayVocabulary();
 }
 
@@ -553,11 +602,13 @@ document.addEventListener('DOMContentLoaded', function () {
     dedupeVocabulary();
     ensureSRSDefaults();
     loadSRSMap();
+    loadUIState();
     displayVocabulary();
     updateStats();
     updateLessonOptions(); // Cập nhật dropdown bài học
     setupFilters();
     renderHistory();
+    populateProgressLessonFilter();
     renderProgress();
 
     // Event listener cho select bài học
@@ -1082,7 +1133,7 @@ function generateQuestion() {
                             <strong>Nghĩa:</strong> ${currentItem.vietnamese}
                         </p>
                         <p style="font-size: 16px; color: #e74c3c; margin: 15px 0;">
-                            <strong>Pinyin:</strong> ${currentItem.pinyin}
+                            <strong>Pinyin:</strong> ${renderPinyin(currentItem.pinyin)}
                         </p>
                         <div style="display: grid; grid-template-columns: repeat(2, 1fr); grid-template-rows: repeat(2, auto); gap: 12px; max-width: 520px; margin: 20px auto;">
                             ${options.map((option, i) => `
@@ -1120,7 +1171,7 @@ function generateQuestion() {
                             ${getDisplayChinese(currentItem.chinese)}
                         </p>
                         <p style="font-size: 16px; color: #e74c3c; margin: 15px 0;">
-                            <strong>Pinyin:</strong> ${currentItem.pinyin}
+                            <strong>Pinyin:</strong> ${renderPinyin(currentItem.pinyin)}
                         </p>
                         <div style="display: grid; grid-template-columns: 1fr; gap: 10px; max-width: 400px; margin: 20px auto;">
                             ${vietnameseOptions.map((option, i) => `
@@ -1153,7 +1204,7 @@ function generateQuestion() {
                                 ${getDisplayChinese(currentItem.chinese)}
                             </p>
                             <p style="font-size: 16px; color: #e74c3c; margin: 10px 0;">
-                                ${currentItem.pinyin}
+                                ${renderPinyin(currentItem.pinyin)}
                             </p>
                             <p style="font-size: 18px; color: #27ae60; margin: 10px 0;">
                                 <strong>Nghĩa:</strong> ${displayVietnamese}
@@ -1181,9 +1232,12 @@ function generateQuestion() {
                         <p style="font-size: 18px; margin: 15px 0;">
                             <strong>Nghĩa:</strong> ${currentItem.vietnamese}
                         </p>
-                        <div style="margin: 20px 0;">
-                            <button class="btn" onclick="playPinyin('${currentItem.pinyin}')" style="padding: 15px 30px; font-size: 16px;">
+                        <div style="margin: 20px 0; display:flex; gap:10px; justify-content:center;">
+                            <button class="btn" id="listenPlayBtn" onclick="playPinyin('${currentItem.pinyin.replace(/'/g, "\\'")}')" style="padding: 15px 30px; font-size: 16px;">
                                 🔊 Nghe phát âm
+                            </button>
+                            <button class="btn" onclick="document.getElementById('answerInput')?.focus()" style="padding: 15px 30px; font-size: 16px;">
+                                ⌨️ Tập trung nhập
                             </button>
                         </div>
                         <input type="text" id="answerInput" class="answer-input"
@@ -1405,15 +1459,20 @@ function selectTrueFalse(userChoice, isCorrectPair, buttonElement) {
 
 // Phát âm Pinyin (mô phỏng)
 function playPinyin(pinyin) {
-    // Sử dụng Speech Synthesis API nếu có
+    if (!pinyin) return;
+    if (typeof speakText === 'function') {
+        speakText(pinyin);
+        return;
+    }
     if ('speechSynthesis' in window) {
         const utterance = new SpeechSynthesisUtterance(pinyin);
         utterance.lang = 'zh-CN';
-        utterance.rate = 0.7;
+        utterance.rate = 0.9;
+        speechSynthesis.cancel();
         speechSynthesis.speak(utterance);
-    } else {
-        alert(`Phát âm: ${pinyin}`);
+        return;
     }
+    alert(`Phát âm: ${pinyin}`);
 }
 
 // Hàm bật/tắt gợi ý
@@ -1732,9 +1791,46 @@ function drawBarChart(canvasId, labels, values, color) {
     });
 }
 
+function getProgressFilters() {
+    const from = document.getElementById('progFrom')?.value;
+    const to = document.getElementById('progTo')?.value;
+    const lesson = document.getElementById('progLesson')?.value || 'all';
+    const type = document.getElementById('progType')?.value || 'all';
+    return { from, to, lesson, type };
+}
+
+function applyProgressFiltersUI() {
+    renderProgress();
+}
+
+function resetProgressFilters() {
+    const ids = ['progFrom', 'progTo'];
+    ids.forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    const lesson = document.getElementById('progLesson'); if (lesson) lesson.value = 'all';
+    const type = document.getElementById('progType'); if (type) type.value = 'all';
+    renderProgress();
+}
+
+function populateProgressLessonFilter() {
+    const sel = document.getElementById('progLesson');
+    if (!sel) return;
+    sel.innerHTML = '<option value="all">Tất cả bài</option>';
+    const lessons = [...new Set(vocabularyData.map(i => i.lesson))].sort();
+    lessons.forEach(ls => { const o = document.createElement('option'); o.value = ls; o.textContent = ls; sel.appendChild(o); });
+}
+
 function renderProgress() {
     try {
-        const hist = JSON.parse(localStorage.getItem('chineseVocab_history') || '[]');
+        let hist = JSON.parse(localStorage.getItem('chineseVocab_history') || '[]');
+        // Apply filters
+        const { from, to, lesson, type } = getProgressFilters();
+        hist = hist.filter(e => {
+            if (from && new Date(e.timestamp) < new Date(from)) return false;
+            if (to && new Date(e.timestamp) > new Date(new Date(to).getTime() + 86400000 - 1)) return false;
+            if (lesson && lesson !== 'all' && e.lessonFilter !== lesson) return false;
+            if (type && type !== 'all' && e.exerciseType !== type) return false;
+            return true;
+        });
         if (!hist.length) return;
         // Daily
         const byDay = {};
@@ -1749,7 +1845,22 @@ function renderProgress() {
             .sort()
             .slice(-10);
         const dayValues = dayLabels.map(k => Math.round(byDay[k] / (byDay[k + '_count'] || 1)));
-        drawBarChart('dailyChart', dayLabels, dayValues, '#667eea');
+        const daySessions = dayLabels.map(k => byDay[k + '_count'] || 0);
+        if (window.Chart) {
+            const ctx = document.getElementById('dailyChart');
+            if (ctx) new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: dayLabels, datasets: [
+                        { label: 'Điểm trung bình (%)', data: dayValues, backgroundColor: '#667eea', yAxisID: 'y' },
+                        { type: 'line', label: 'Số bài', data: daySessions, borderColor: '#ef6c00', backgroundColor: 'rgba(239,108,0,0.2)', yAxisID: 'y2', tension: 0.3 }
+                    ]
+                },
+                options: { responsive: true, plugins: { legend: { display: true } }, scales: { y: { beginAtZero: true, max: 100, ticks: { callback: v => v + '%' } }, y2: { beginAtZero: true, position: 'right', grid: { drawOnChartArea: false } } } }
+            });
+        } else {
+            drawBarChart('dailyChart', dayLabels, dayValues, '#667eea');
+        }
 
         // Weekly (ISO week)
         const byWeek = {};
@@ -1768,41 +1879,151 @@ function renderProgress() {
             .sort()
             .slice(-10);
         const weekValues = weekLabels.map(k => Math.round(byWeek[k] / (byWeek[k + '_count'] || 1)));
-        drawBarChart('weeklyChart', weekLabels, weekValues, '#26a69a');
+        const weekSessions = weekLabels.map(k => byWeek[k + '_count'] || 0);
+        if (window.Chart) {
+            const ctx2 = document.getElementById('weeklyChart');
+            if (ctx2) new Chart(ctx2, {
+                type: 'bar',
+                data: {
+                    labels: weekLabels, datasets: [
+                        { label: 'Điểm trung bình (%)', data: weekValues, backgroundColor: '#26a69a', yAxisID: 'y' },
+                        { type: 'line', label: 'Số bài', data: weekSessions, borderColor: '#ab47bc', backgroundColor: 'rgba(171,71,188,0.2)', yAxisID: 'y2', tension: 0.3 }
+                    ]
+                },
+                options: { responsive: true, plugins: { legend: { display: true } }, scales: { y: { beginAtZero: true, max: 100, ticks: { callback: v => v + '%' } }, y2: { beginAtZero: true, position: 'right', grid: { drawOnChartArea: false } } } }
+            });
+        } else {
+            drawBarChart('weeklyChart', weekLabels, weekValues, '#26a69a');
+        }
 
-        // Accuracy by exercise type
+        // Daily Detail chart and table
+        const detailCanvas = document.getElementById('dailyDetailChart');
+        if (window.Chart && detailCanvas) {
+            const detailData = hist.map(e => ({
+                x: new Date(e.timestamp),
+                y: e.percentage || 0,
+                type: e.exerciseType || 'other',
+                lesson: e.lessonFilter || 'all',
+                total: e.total || 0,
+                durSec: Math.round((e.durationMs || 0) / 1000)
+            })).sort((a, b) => a.x - b.x);
+
+            if (detailCanvas._chart) detailCanvas._chart.destroy();
+            detailCanvas._chart = new Chart(detailCanvas, {
+                type: 'scatter',
+                data: {
+                    datasets: [{
+                        type: 'scatter',
+                        label: 'Điểm theo thời gian',
+                        data: detailData,
+                        parsing: false,
+                        showLine: true,
+                        borderColor: '#42a5f5',
+                        backgroundColor: 'rgba(66,165,245,0.3)',
+                        pointRadius: 3,
+                        pointHoverRadius: 5,
+                        tension: 0.25
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: { display: false }, tooltip: {
+                            callbacks: {
+                                label: (ctx) => {
+                                    const d = ctx.raw; return `${d.x.toLocaleString('vi-VN')} • ${d.y}% • ${labelExerciseType(d.type)} • ${d.total} câu • ${d.durSec}s`;
+                                }
+                            }
+                        }
+                    },
+                    scales: { x: { type: 'time', time: { unit: 'day' } }, y: { beginAtZero: true, max: 100, ticks: { callback: v => v + '%' } } }
+                }
+            });
+
+            const tbody = document.getElementById('dailyDetailBody');
+            if (tbody) {
+                tbody.innerHTML = detailData.slice(-100).reverse().map(d => `
+                    <tr>
+                        <td>${d.x.toLocaleString('vi-VN')}</td>
+                        <td>${labelExerciseType(d.type)}</td>
+                        <td>${d.lesson === 'all' ? 'Tất cả' : d.lesson}</td>
+                        <td>${d.y}%</td>
+                        <td>${d.total}</td>
+                        <td>${d.durSec}</td>
+                    </tr>
+                `).join('');
+                const info = document.getElementById('dailyDetailInfo');
+                if (info) info.textContent = `Hiển thị ${Math.min(100, detailData.length)} / ${detailData.length} phiên (gần nhất)`;
+            }
+        }
+
+        // Accuracy by exercise type with session count and avg time per question
         const byType = {};
         hist.forEach(e => {
             const t = e.exerciseType || 'other';
-            byType[t] = byType[t] || { correct: 0, total: 0 };
+            byType[t] = byType[t] || { correct: 0, total: 0, sessions: 0, timeSum: 0 };
             byType[t].correct += (e.correct || 0);
             byType[t].total += (e.total || 0);
+            byType[t].sessions += 1;
+            if (typeof e.durationMs === 'number' && e.total) byType[t].timeSum += e.durationMs / e.total;
         });
         const typeBody = document.getElementById('byTypeBody');
         if (typeBody) {
             typeBody.innerHTML = Object.keys(byType).map(k => {
                 const c = byType[k].correct, t = byType[k].total, p = t ? Math.round(c * 100 / t) : 0;
-                return `<tr><td>${labelExerciseType(k)}</td><td>${c}</td><td>${t}</td><td>${p}%</td></tr>`;
+                const sess = byType[k].sessions;
+                const avgSec = byType[k].timeSum && byType[k].sessions ? (byType[k].timeSum / byType[k].sessions / 1000) : 0;
+                return `<tr><td>${labelExerciseType(k)}</td><td>${c}</td><td>${t}</td><td>${p}%</td><td>${sess}</td><td>${avgSec.toFixed(1)}</td></tr>`;
             }).join('');
         }
 
-        // Accuracy by grammar (aggregate from history mistakes vs total)
+        // Grammar mistakes distribution with representative words
         const byGrammar = {};
         hist.forEach(e => {
             (e.mistakes || []).forEach(m => {
                 const g = (m.question?.grammar) || 'N/A';
-                byGrammar[g] = byGrammar[g] || { correct: 0, total: 0 };
-                byGrammar[g].total += 1;
+                const key = g;
+                byGrammar[key] = byGrammar[key] || { count: 0, words: {} };
+                byGrammar[key].count += 1;
+                const w = m.question?.chinese || '?';
+                byGrammar[key].words[w] = (byGrammar[key].words[w] || 0) + 1;
             });
-            // approximate corrects: total per attempt minus mistakes grammar if available
-            // For simplicity, we skip exact grammar for corrects and display mistakes distribution
         });
         const gramBody = document.getElementById('byGrammarBody');
         if (gramBody) {
+            const totalMistakes = Object.values(byGrammar).reduce((s, v) => s + v.count, 0) || 1;
             gramBody.innerHTML = Object.keys(byGrammar).map(k => {
-                const t = byGrammar[k].total; // mistakes count as proxy
-                return `<tr><td>${k}</td><td>-</td><td>${t}</td><td>-</td></tr>`;
+                const count = byGrammar[k].count;
+                const pct = Math.round(count * 100 / totalMistakes);
+                const words = Object.entries(byGrammar[k].words)
+                    .sort((a, b) => b[1] - a[1])
+                    .slice(0, 3)
+                    .map(([w, n]) => `${w}(${n})`).join(', ');
+                return `<tr><td>${k}</td><td>${count}</td><td>${pct}%</td><td>${words}</td></tr>`;
             }).join('');
+        }
+
+        // Summary header: sessions, avg score, streak, due
+        const totals = hist.reduce((acc, e) => {
+            acc.sessions++;
+            acc.total += (e.total || 0);
+            acc.correct += (e.correct || 0);
+            acc.scoreSum += (e.percentage || 0);
+            return acc;
+        }, { sessions: 0, total: 0, correct: 0, scoreSum: 0 });
+        const avgScore = totals.sessions ? Math.round(totals.scoreSum / totals.sessions) : 0;
+        // streak calc (consecutive days with >=1 session from today backward)
+        const daysWith = new Set(hist.map(e => new Date(e.timestamp).toISOString().slice(0, 10)));
+        let streak = 0; let cur = new Date();
+        for (; ;) {
+            const key = new Date(Date.UTC(cur.getFullYear(), cur.getMonth(), cur.getDate())).toISOString().slice(0, 10);
+            if (daysWith.has(key)) streak++; else break;
+            cur.setDate(cur.getDate() - 1);
+        }
+        const dueCount = getDueItemsReference().size;
+        const header = document.querySelector('#progress h3');
+        if (header) {
+            header.innerHTML = `📈 Tiến độ học tập <span style="font-weight:600; color:#64748b; font-size:0.9em;">• Bài: ${totals.sessions} • Điểm TB: ${avgScore}% • Chuỗi ngày: ${streak} • Từ đến hạn: ${dueCount}</span>`;
         }
     } catch (e) { console.log('renderProgress failed', e); }
 }
@@ -2068,11 +2289,15 @@ function setupFilters() {
         lessonSelect.appendChild(opt);
     });
 
-    const refresh = () => displayVocabulary();
+    const refresh = () => { saveUIState(); displayVocabulary(); };
     const handlers = [searchInput, lessonSelect, topicInput, grammarSelect, sortSelect, favOnly].filter(Boolean);
     handlers.forEach(el => el.addEventListener('input', refresh));
     if (togglePinyinCheckbox) togglePinyinCheckbox.addEventListener('change', refresh);
+    const pageSizeSel = document.getElementById('pageSize');
+    if (pageSizeSel) pageSizeSel.addEventListener('change', () => { saveUIState(); });
 }
+
+// (Dark mode removed)
 
 // Lọc và sắp xếp dữ liệu theo controls
 function getFilteredSortedData() {
@@ -2193,7 +2418,7 @@ function renderFlashcard() {
         <div>${getDisplayChinese(item.chinese)}</div>
     `;
     const backHTML = `
-        <div class="pinyin">${item.pinyin}</div>
+        <div class="pinyin">${renderPinyin(item.pinyin)}</div>
         <div class="viet">${item.vietnamese}</div>
         ${item.example ? `<div style="margin-top:8px; font-size:16px; color:#555;">${item.example}</div>` : ''}
     `;

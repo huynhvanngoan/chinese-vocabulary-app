@@ -24,7 +24,10 @@
     --border-radius: 8px;
     --border-radius-large: 15px;
     --transition: all 0.3s ease;
+    --progress-header-h: 48px;
 }
+
+/* (Dark mode removed) */
 
 /* ===== BASE STYLES ===== */
 * {
@@ -1568,6 +1571,52 @@ tr:hover {
     border-radius: 10px;
     padding: 15px;
     box-shadow: var(--shadow-light);
+}
+
+/* Progress area: make scrollable and sticky filters */
+#progress .exercise-section {
+    max-height: calc(100vh - 180px);
+    overflow: auto;
+    position: relative;
+    scrollbar-width: thin;
+    scrollbar-color: #94a3b8 #f1f5f9;
+}
+#progress .progress-filters {
+    position: sticky;
+    top: var(--progress-header-h);
+    z-index: 2;
+    background: #fff;
+    border-bottom: 1px solid #eef3f8;
+}
+
+#progress .exercise-section h3 {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    background: #fff;
+    margin: 0 0 10px 0;
+    padding: 12px;
+    border-bottom: 1px solid #eef3f8;
+    height: var(--progress-header-h);
+    display: flex;
+    align-items: center;
+}
+
+/* Custom scrollbar for WebKit */
+#progress .exercise-section::-webkit-scrollbar {
+    width: 10px;
+}
+#progress .exercise-section::-webkit-scrollbar-track {
+    background: #f1f5f9;
+    border-radius: 8px;
+}
+#progress .exercise-section::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 8px;
+    border: 2px solid #f1f5f9;
+}
+#progress .exercise-section::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
 }
 
 .mini-table {
