@@ -2772,7 +2772,7 @@ function buildRowHTML(item, absoluteIndex) {
             <td class="chinese">${getDisplayChinese(item.chinese)}</td>
             <td class="pinyin">${renderPinyin(item.pinyin)}</td>
             <td><span class="grammar">${item.grammar}</span></td>
-            <td>${item.srs?.level || 1}</td>
+            <td><span class="level-cell level-${item.srs?.level || 1}">${item.srs?.level || 1}</span></td>
             <td class="vietnamese">${item.vietnamese}</td>
             <td>${item.example || ''}</td>
             <td>

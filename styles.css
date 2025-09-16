@@ -211,6 +211,30 @@ tr:hover {
     font-size: clamp(0.6rem, 1vw, 0.7rem);
 }
 
+/* ===== LEVEL BADGE ===== */
+.level-cell {
+    font-weight: 700;
+    text-align: center;
+    border-radius: 6px;
+    padding: 4px 6px;
+    color: #1f2937;
+}
+.level-1 {
+    background: #fde68a;
+} /* amber-200 */
+.level-2 {
+    background: #c7f9cc;
+} /* green-200 */
+.level-3 {
+    background: #bae6fd;
+} /* sky-200 */
+.level-4 {
+    background: #ddd6fe;
+} /* violet-200 */
+.level-5 {
+    background: #fecaca;
+} /* rose-200 */
+
 /* ===== PAGINATION ===== */
 .pagination-controls {
     position: sticky;
